@@ -615,6 +615,8 @@ impl ViewClusterBindings {
     }
 
     pub fn clear(&mut self) {
+        self.n_indices = 0;
+        self.n_offsets = 0;
         match &mut self.buffers {
             ViewClusterBuffers::Uniform {
                 clusterable_object_index_lists,
