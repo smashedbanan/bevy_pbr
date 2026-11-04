@@ -436,10 +436,21 @@ impl Plugin for PbrPlugin {
             return;
         };
 
+        render_app.init_resource::<AmbientDataBuffer>();
+
         let global_cluster_settings = make_global_cluster_settings(render_app.world());
         app.insert_resource(global_cluster_settings);
+
+        if !app.world().contains_resource::<CustomAmbientHook>() {
+            load_shader_library!(app, "render/ambient_hook.wesl");
+        }
     }
 }
+
+/// emm: insert before `PbrPlugin` finishes to supply `bevy_pbr::render::ambient_hook` yourself
+/// (a shader at `embedded://bevy_pbr/render/ambient_hook.wesl`) in place of Bevy's.
+#[derive(Resource, Default)]
+pub struct CustomAmbientHook;
 
 pub fn stbn_placeholder() -> Image {
     let format = TextureFormat::Rgba8Unorm;

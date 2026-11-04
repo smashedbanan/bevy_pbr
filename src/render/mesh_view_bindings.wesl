@@ -37,6 +37,9 @@ enable wgpu_binding_array;
 }
 
 @group(0) @binding(11) var<uniform> globals: Globals;
+// emm: the app's ambient data (`AmbientDataBuffer`), read by an app's `ambient_hook.wesl`.
+@group(0) @binding(39) var<storage> ambient_data: array<vec4<f32>>;
+
 @group(0) @binding(12) var<uniform> light_probes: types::LightProbes;
 
 @if(DISTANCE_FOG)

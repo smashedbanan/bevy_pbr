@@ -19,6 +19,7 @@ use bevy_ecs::{
     query::Has,
     resource::Resource,
     system::{Commands, Query, Res},
+    world::{FromWorld, World},
 };
 use bevy_light::{EnvironmentMapLight, IrradianceVolume};
 use bevy_math::Vec4;
@@ -342,6 +343,8 @@ fn layout_entries(
                 11,
                 uniform_buffer::<GlobalsUniform>(false).visibility(ShaderStages::VERTEX_FRAGMENT),
             ),
+            // emm: the app's ambient data
+            (39, storage_buffer_read_only_sized(false, None)),
             // Light probes
             (12, uniform_buffer::<LightProbesUniform>(true)),
             // Visibility ranges
@@ -629,6 +632,22 @@ pub struct MeshViewBindGroup {
     pub empty: BindGroup,
 }
 
+/// emm: the storage buffer every mesh view binds at 39 as `ambient_data` (`array<vec4<f32>>`),
+/// for an app's `ambient_hook.wesl`. Starts as one zero `vec4`; an app replaces it in the render
+/// world.
+#[derive(Resource)]
+pub struct AmbientDataBuffer(pub Buffer);
+
+impl FromWorld for AmbientDataBuffer {
+    fn from_world(world: &mut World) -> Self {
+        Self(world.resource::<RenderDevice>().create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("ambient_data"),
+            contents: &[0; 16],
+            usage: BufferUsages::STORAGE,
+        }))
+    }
+}
+
 pub fn prepare_mesh_view_bind_groups(
     mut commands: Commands,
     (render_device, pipeline_cache, render_adapter): (
@@ -686,13 +705,22 @@ pub fn prepare_mesh_view_bind_groups(
         Res<ContactShadowsBuffer>,
         Res<OitBuffers>,
     ),
-    (decals_buffer, render_decals, atmosphere_sampler, blue_noise, area_light_luts, dfg_lut): (
+    (
+        decals_buffer,
+        render_decals,
+        atmosphere_sampler,
+        blue_noise,
+        area_light_luts,
+        dfg_lut,
+        ambient_data,
+    ): (
         Res<DecalsBuffer>,
         Res<RenderClusteredDecals>,
         Option<Res<AtmosphereSampler>>,
         Res<Bluenoise>,
         Res<AreaLightLuts>,
         Res<DfgLut>,
+        Res<AmbientDataBuffer>,
     ),
     // TODO: Figure out how to reuse the memory. `BindGroupEntry` is non-send on wasm with atomics.
     #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
@@ -790,6 +818,7 @@ pub fn prepare_mesh_view_bind_groups(
                 (10, cluster_bindings.offsets_and_counts_binding().unwrap()),
                 (11, globals.clone()),
                 (12, light_probes_binding.clone()),
+                (39, ambient_data.0.as_entire_binding()),
                 (14, visibility_ranges_buffer.as_entire_binding()),
             ));
 
