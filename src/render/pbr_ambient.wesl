@@ -1,7 +1,7 @@
 import package::render::{
     pbr_lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::lights,
-    ambient_hook::diffuse_ambient_light,
+    ambient_hook::ambient_light_color,
 };
 
 /// A precomputed `NdotV` is provided because it is computed regardless,
@@ -24,7 +24,7 @@ fn ambient_light(
     // See: https://google.github.io/filament/Filament.md.html#specularocclusion
     let specular_occlusion = saturate(dot(specular_color, vec3(50.0 * 0.33)));
 
-    // emm: the diffuse half takes its light from `ambient_hook.wesl`, which an app can replace.
-    return (diffuse_ambient * diffuse_ambient_light(world_position.xyz, world_normal)
-        + specular_ambient * specular_occlusion * lights.ambient_color.rgb) * occlusion;
+    // emm: the light comes from `ambient_hook.wesl`, which an app can replace.
+    let light = ambient_light_color(world_position.xyz, world_normal);
+    return (diffuse_ambient + specular_ambient * specular_occlusion) * light * occlusion;
 }
