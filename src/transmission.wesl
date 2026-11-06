@@ -75,10 +75,21 @@ fn specular_transmissive_light(world_position: vec4<f32>, frag_coord: vec3<f32>,
 }
 
 fn fetch_transmissive_background_non_rough(offset_position: vec2<f32>, frag_coord: vec3<f32>) -> vec4<f32> {
+    // emm: the colour read clamped into the main pass's viewport, inset half a texel, as a native
+    // read clamps to its last texel: under a `MainPassResolutionOverride` the window-size copy
+    // holds no scene past the render-size corner. The depth test below stays unclamped.
+    let full_size = vec2<f32>(textureDimensions(view_bindings::view_transmission_texture));
+    let corner = view_bindings::view.main_pass_viewport;
+    let colour_position = clamp(
+        offset_position,
+        (corner.xy + 0.5) / full_size,
+        (corner.xy + corner.zw - 0.5) / full_size,
+    );
     var background_color = textureSampleLevel(
         view_bindings::view_transmission_texture,
         view_bindings::view_transmission_sampler,
-        offset_position,
+        // emm: the clamped read.
+        colour_position,
         0.0
     );
 
