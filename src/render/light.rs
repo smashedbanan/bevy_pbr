@@ -576,6 +576,12 @@ pub fn extract_lights(
 
             all_lights_found.insert(render_entity);
 
+            // emm: the faces `prepare_lights` draws.
+            let drawn = match (kept_bake, live_faces) {
+                (Some(bake), _) => bake.faces,
+                (None, Some(faces)) => faces.0,
+                (None, None) => ALL_CUBE_FACES,
+            };
             for face_index in 0..6 {
                 let retained_view_entity = RetainedViewEntity {
                     main_entity: MainEntity::from(main_entity),
@@ -597,6 +603,10 @@ pub fn extract_lights(
                     .or_default()
                     .entities;
                 extracted_entities.clear();
+                // emm: a face not drawn keeps no meshes, so none is specialised or queued for it.
+                if drawn & 1 << face_index == 0 {
+                    continue;
+                }
                 let visible_mesh_entities = cubemap_visible_entities.get(face_index as usize);
                 extracted_entities.extend(visible_mesh_entities.entities.iter().map(
                     |main_entity| {

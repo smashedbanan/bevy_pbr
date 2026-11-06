@@ -108,7 +108,9 @@ layout.
 faces without one (a spot's are all six too), and `prepare_lights` writes it to
 `GpuClusteredLight::live_faces`, 0 for a rect light. A face whose bit is clear gets no
 `RootNonCameraView`, as a bake light's faces outside its mask, so Bevy draws it not at all and its
-layer keeps whatever was last drawn there.
+layer keeps whatever was last drawn there. `extract_lights` leaves such a face's visible entities
+empty, a live light's by its mask and a bake light's by `faces`, so no mesh is specialised, queued
+or batched for it; Bevy's main-world `check_point_light_mesh_visibility` still collects all six.
 
 `render/shadows.wesl`: `fetch_point_shadow_in` takes the faces drawn (`fetch_point_shadow` the
 light's `live_faces`, `fetch_kept_point_shadow` all six, so the kept map is sampled whatever the
