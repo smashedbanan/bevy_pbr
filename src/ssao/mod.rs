@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin};
 use bevy_asset::{embedded_asset, load_embedded_asset, Handle};
-use bevy_camera::{Camera, Camera3d};
+use bevy_camera::{Camera, Camera3d, MainPassResolutionOverride};
 use bevy_core_pipeline::{
     prepass::{DepthPrepass, NormalPrepass, ViewPrepassTextures},
     schedule::{Core3d, Core3dSystems},
@@ -187,12 +187,14 @@ fn ssao(
         &SsaoPipelineId,
         &SsaoBindGroups,
         &ViewUniformOffset,
+        Option<&MainPassResolutionOverride>,
     )>,
     pipelines: Res<SsaoPipelines>,
     pipeline_cache: Res<PipelineCache>,
     mut ctx: RenderContext,
 ) {
-    let (camera, pipeline_id, bind_groups, view_uniform_offset) = view.into_inner();
+    let (camera, pipeline_id, bind_groups, view_uniform_offset, resolution_override) =
+        view.into_inner();
 
     let (
         Some(camera_size),
@@ -200,7 +202,8 @@ fn ssao(
         Some(spatial_denoise_pipeline),
         Some(ssao_pipeline),
     ) = (
-        camera.physical_viewport_size,
+        // emm: the main pass's size, as `prepare_ssao_textures` sizes the textures.
+        resolution_override.map_or(camera.physical_viewport_size, |size| Some(size.0)),
         pipeline_cache.get_compute_pipeline(pipelines.preprocess_depth_pipeline),
         pipeline_cache.get_compute_pipeline(pipelines.spatial_denoise_pipeline),
         pipeline_cache.get_compute_pipeline(pipeline_id.0),
@@ -535,10 +538,19 @@ fn prepare_ssao_textures(
     mut texture_cache: ResMut<TextureCache>,
     render_device: Res<RenderDevice>,
     pipelines: Res<SsaoPipelines>,
-    views: Query<(Entity, &ExtractedCamera, &ScreenSpaceAmbientOcclusion)>,
+    views: Query<(
+        Entity,
+        &ExtractedCamera,
+        &ScreenSpaceAmbientOcclusion,
+        Option<&MainPassResolutionOverride>,
+    )>,
 ) {
-    for (entity, camera, ssao_settings) in &views {
-        let Some(physical_viewport_size) = camera.physical_viewport_size else {
+    for (entity, camera, ssao_settings, resolution_override) in &views {
+        // emm: under a `MainPassResolutionOverride`, the main pass's size, which the depth and
+        // normals fill the top-left corner of.
+        let physical_viewport_size =
+            resolution_override.map_or(camera.physical_viewport_size, |size| Some(size.0));
+        let Some(physical_viewport_size) = physical_viewport_size else {
             continue;
         };
         let size = physical_viewport_size.to_extents();
