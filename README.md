@@ -6,7 +6,8 @@
 light per fragment, the main pass draws correctly at a smaller size under
 `MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
 light at a plane, a point or spot light can cast from other layers than it lights, and a point or
-spot light can sample a shadow map kept across frames beside its live one.
+spot light can sample a shadow map kept across frames beside its live one, which a hidden bake
+light draws through Bevy's own shadow pass.
 
 Each change is marked `emm:` in the source.
 
@@ -78,6 +79,24 @@ cube array), as Bevy's own shadow textures do.
   the direct ones. Every light field the kept fetch reads (position, depth bias, near plane, the
   cube projection terms or spot direction and tangent) is filled whether or not the light's
   shadow maps are enabled. Volumetric fog does not sample kept shadows.
+- `KeptShadowBake { class, slot, faces }` on a point or spot light with `shadow_maps_enabled` makes
+  it a bake light: `extract_lights` copies it to `ExtractedPointLight::kept_bake`
+  (`Changed<KeptShadowBake>` re-extracts the light), and `prepare_lights` sorts bake lights right
+  after the live shadowed lights of their kind and before the unshadowed ones, leaving them out of
+  `point_light_shadow_maps_count` and `spot_light_shadow_maps_count`. So they take no layer in the
+  live arrays and no `SHADOW_MAPS_ENABLED`, and the live lights keep their layers, while the point
+  and spot view loops still reach them; `max_texture_cubes` does not limit them. The spot layer
+  offset keeps every point light, bake lights included, as the shader indexes the whole sorted
+  list. A bake light's views keep Bevy's visible entities and phases, but each takes its
+  `ShadowView` attachment from its class's kept texture at layer `slot * 6 + face` (a spot's:
+  `slot`), cleared on first use, from attachment maps of their own by class and layer, and its
+  viewport at the class's size; a face whose bit in `faces` is clear has no `RootNonCameraView`, so
+  Bevy draws it not at all. The views are rebuilt only when the light changes, as Bevy's are.
+  `KeptShadowTextures` is prepared in `CreateViews` before `prepare_lights`, so a bake light that
+  arrives with a new layout draws into the new textures; one alive across a new generation keeps
+  drawing into the old ones until it changes.
+- For tests: `GpuClusteredLights::values` and `GpuClusteredLight::shadow_maps_enabled` read the
+  light buffer `prepare_lights` last wrote.
 
 ## The main pass at a smaller size
 

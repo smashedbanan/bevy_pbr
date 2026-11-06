@@ -320,6 +320,11 @@ impl GpuClusteredLights {
         self.is_storage_buffer
     }
 
+    /// emm: the lights as `prepare_lights` last wrote them, for a test to read.
+    pub fn values(&self) -> &[GpuClusteredLight] {
+        self.data.values()
+    }
+
     pub(crate) fn add(&mut self, light: GpuClusteredLight) {
         if self.is_storage_buffer || self.data.len() < MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS {
             self.data.push(light);

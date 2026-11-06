@@ -114,6 +114,8 @@ pub struct ExtractedPointLight {
     pub clip_plane: Vec4,
     /// emm: the light's [`KeptShadow`], if it has one.
     pub kept_shadow: Option<KeptShadow>,
+    /// emm: the light's [`KeptShadowBake`], if it is a bake light.
+    pub kept_bake: Option<KeptShadowBake>,
 }
 
 #[derive(Component, Debug)]
@@ -200,6 +202,13 @@ bitflags::bitflags! {
         const CONTACT_SHADOWS_ENABLED           = 1 << 3;
         const NONE                              = 0;
         const UNINITIALIZED                     = 0xFFFF;
+    }
+}
+
+impl GpuClusteredLight {
+    /// emm: whether the light samples its live shadow map (`SHADOW_MAPS_ENABLED`).
+    pub fn shadow_maps_enabled(&self) -> bool {
+        self.flags & PointLightFlags::SHADOW_MAPS_ENABLED.bits() != 0
     }
 }
 
@@ -369,6 +378,7 @@ pub fn extract_lights(
                 Option<&LightClipPlane>,
                 Option<&ShadowCasterLayers>,
                 Option<&KeptShadow>,
+                Option<&KeptShadowBake>,
             ),
             Or<(
                 Changed<PointLight>,
@@ -382,6 +392,7 @@ pub fn extract_lights(
                 Changed<LightClipPlane>,
                 Changed<ShadowCasterLayers>,
                 Changed<KeptShadow>,
+                Changed<KeptShadowBake>,
             )>,
         >,
     >,
@@ -401,6 +412,7 @@ pub fn extract_lights(
                 Option<&LightClipPlane>,
                 Option<&ShadowCasterLayers>,
                 Option<&KeptShadow>,
+                Option<&KeptShadowBake>,
             ),
             Or<(
                 Changed<SpotLight>,
@@ -414,6 +426,7 @@ pub fn extract_lights(
                 Changed<LightClipPlane>,
                 Changed<ShadowCasterLayers>,
                 Changed<KeptShadow>,
+                Changed<KeptShadowBake>,
             )>,
         >,
     >,
@@ -515,6 +528,7 @@ pub fn extract_lights(
         clip_plane,
         caster_layers,
         kept_shadow,
+        kept_bake,
     ) in point_lights.iter()
     {
         if !view_visibility.get() {
@@ -630,6 +644,7 @@ pub fn extract_lights(
             soft_shadows_enabled: false,
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
             kept_shadow: kept_shadow.copied(),
+            kept_bake: kept_bake.copied(),
         };
         entity_commands.insert((
             extracted_point_light,
@@ -657,6 +672,7 @@ pub fn extract_lights(
         clip_plane,
         caster_layers,
         kept_shadow,
+        kept_bake,
     ) in spot_lights.iter()
     {
         if !view_visibility.get() {
@@ -779,6 +795,7 @@ pub fn extract_lights(
             soft_shadows_enabled: false,
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
             kept_shadow: kept_shadow.copied(),
+            kept_bake: kept_bake.copied(),
         };
         entity_commands.insert((
             extracted_spot_light,
@@ -1170,9 +1187,11 @@ pub fn prepare_lights(
         Query<&mut DirectionalLightViewEntities>,
     ),
     sorted_cameras: Res<SortedCameras>,
-    (gpu_preprocessing_support, decals): (
+    (gpu_preprocessing_support, decals, kept_textures): (
         Res<GpuPreprocessingSupport>,
         Option<Res<RenderClusteredDecals>>,
+        // emm
+        Res<KeptShadowTextures>,
     ),
     (existing_shadow_views, mut light_key_cache, mut specialized_shadow_material_pipeline_cache): (
         Query<&ShadowView>,
@@ -1281,9 +1300,14 @@ pub fn prepare_lights(
         .count()
         .min(max_texture_cubes);
 
+    // emm: bake lights take no live shadow map.
     let point_light_shadow_maps_count = point_lights
         .iter()
-        .filter(|light| light.2.shadow_maps_enabled && light.2.spot_light_angles.is_none())
+        .filter(|light| {
+            light.2.shadow_maps_enabled
+                && light.2.spot_light_angles.is_none()
+                && light.2.kept_bake.is_none()
+        })
         .count()
         .min(max_texture_cubes);
 
@@ -1313,10 +1337,13 @@ pub fn prepare_lights(
         .count()
         .min(max_texture_array_layers - directional_shadow_enabled_count * MAX_CASCADES_PER_LIGHT);
 
+    // emm: bake lights take no live shadow map.
     let spot_light_shadow_maps_count = point_lights
         .iter()
         .filter(|(_, _, light, _, _, _)| {
-            light.shadow_maps_enabled && light.spot_light_angles.is_some()
+            light.shadow_maps_enabled
+                && light.spot_light_angles.is_some()
+                && light.kept_bake.is_none()
         })
         .count()
         .min(max_texture_array_layers - directional_shadow_enabled_count * MAX_CASCADES_PER_LIGHT);
@@ -1326,9 +1353,17 @@ pub fn prepare_lights(
     // - then those with shadows enabled first, so that the index can be used to render at most `point_light_shadow_maps_count`
     //   point light shadows and `spot_light_shadow_maps_count` spot light shadow maps,
     // - then by entity as a stable key to ensure that a consistent set of lights are chosen if the light count limit is exceeded.
+    // emm: bake lights right after the live shadowed lights of their kind, so they are past
+    // `point_light_shadow_maps_count` and `spot_light_shadow_maps_count`, which leave them out, and
+    // take no live layer and no `SHADOW_MAPS_ENABLED`, but within the view loops' blocks.
     point_light_entities.sort_by_cached_key(|entity| {
+        let light = point_lights.get(*entity).unwrap().2;
+        let (kind, unshadowed, unvolumetric) = point_or_spot_light_to_clusterable(light).ordering();
         (
-            point_or_spot_light_to_clusterable(point_lights.get(*entity).unwrap().2).ordering(),
+            kind,
+            unshadowed,
+            light.kept_bake.is_some(),
+            unvolumetric,
             *entity,
         )
     });
@@ -1547,6 +1582,9 @@ pub fn prepare_lights(
     let mut point_light_depth_attachments = HashMap::<u32, DepthStencilViewAttachment>::default();
     let mut directional_light_depth_attachments =
         HashMap::<u32, DepthStencilViewAttachment>::default();
+    // emm: bake lights' attachments, by class and then layer.
+    let mut kept_point_depth_attachments: [HashMap<u32, DepthStencilViewAttachment>; 4] = default();
+    let mut kept_spot_depth_attachments: [HashMap<u32, DepthStencilViewAttachment>; 4] = default();
 
     let point_light_depth_texture = texture_cache.get(
         &render_device,
@@ -1643,10 +1681,12 @@ pub fn prepare_lights(
     let mut live_views = EntityHashSet::with_capacity(views_count);
 
     // TODO: this should select lights based on relevance to the view instead of the first ones that show up in a query
-    for light_entity in point_light_entities
+    for (index, light_entity) in point_light_entities
         .iter()
         // Lights are sorted, shadow enabled lights are first
-        .take(point_light_count.min(max_texture_cubes))
+        // emm: bake lights next, which `max_texture_cubes` does not limit.
+        .take(point_light_count)
+        .enumerate()
     {
         let (
             _,
@@ -1656,6 +1696,19 @@ pub fn prepare_lights(
             light_render_layers,
             (point_light_frusta, _),
         ) = point_lights.get_mut(*light_entity).unwrap();
+
+        // emm
+        if index >= max_texture_cubes && light.kept_bake.is_none() {
+            continue;
+        }
+        let kept = light.kept_bake.map(|bake| {
+            let class = bake.class as usize;
+            (
+                bake,
+                &kept_textures.point[class],
+                &mut kept_point_depth_attachments[class],
+            )
+        });
 
         if !light.shadow_maps_enabled {
             despawn_entities(
@@ -1682,6 +1735,7 @@ pub fn prepare_lights(
                 (light_entity, light_main_entity, light, light_render_layers),
                 point_light_shadow_map.size as u32,
                 gpu_preprocessing_support.max_supported_mode,
+                kept,
             );
 
             point_and_spot_light_view_entities.0 = light_view_entities;
@@ -1700,6 +1754,7 @@ pub fn prepare_lights(
                 (light_entity, light_main_entity, light, light_render_layers),
                 point_light_shadow_map.size as u32,
                 gpu_preprocessing_support.max_supported_mode,
+                kept,
             );
         }
 
@@ -1732,6 +1787,16 @@ pub fn prepare_lights(
             (_, spot_light_frustum),
         ) = point_lights.get_mut(*light_entity).unwrap();
 
+        // emm
+        let kept = light.kept_bake.map(|bake| {
+            let class = bake.class as usize;
+            (
+                bake,
+                &kept_textures.spot[class],
+                &mut kept_spot_depth_attachments[class],
+            )
+        });
+
         if !light.shadow_maps_enabled {
             despawn_entities(
                 &mut commands,
@@ -1757,6 +1822,7 @@ pub fn prepare_lights(
                 spot_light_frustum,
                 directional_light_shadow_map.size as u32,
                 gpu_preprocessing_support.max_supported_mode,
+                kept,
             );
 
             point_and_spot_light_view_entities.0 = vec![view_light_entity];
@@ -1772,6 +1838,7 @@ pub fn prepare_lights(
                 spot_light_frustum,
                 directional_light_shadow_map.size as u32,
                 gpu_preprocessing_support.max_supported_mode,
+                kept,
             );
         }
 
@@ -2195,6 +2262,14 @@ pub fn prepare_lights(
         .retain(|entity, _| live_shadow_mapping_lights.contains(entity));
 }
 
+/// emm: a bake light's [`KeptShadowBake`], its class's kept texture and that texture's
+/// attachments by layer.
+type KeptBakeTarget<'a> = (
+    KeptShadowBake,
+    &'a CachedTexture,
+    &'a mut HashMap<u32, DepthStencilViewAttachment>,
+);
+
 /// Creates six point shadow maps for a `RetainedViewEntity` identified by the `light_main_entity`
 /// and the six cube face rotation indices. These shadow maps are shared across
 /// all cameras.
@@ -2216,6 +2291,8 @@ fn create_point_shadow_maps(
     ),
     point_light_shadow_map_size: u32,
     gpu_preprocessing_support_max_supported_mode: GpuPreprocessingMode,
+    // emm
+    mut kept: Option<KeptBakeTarget>,
 ) {
     let light_index = *global_clusterable_object_meta
         .entity_to_index
@@ -2240,23 +2317,38 @@ fn create_point_shadow_maps(
     {
         let base_array_layer = (light_index * 6 + face_index) as u32;
 
-        let depth_attachment = point_light_depth_attachments
+        // emm: a bake light draws into its kept slot, at its class's size.
+        let (depth_attachments, depth_texture, base_array_layer, shadow_map_size) = match &mut kept
+        {
+            Some((bake, texture, attachments)) => (
+                &mut **attachments,
+                *texture,
+                bake.slot * 6 + face_index as u32,
+                texture.texture.width(),
+            ),
+            None => (
+                &mut *point_light_depth_attachments,
+                point_light_depth_texture,
+                base_array_layer,
+                point_light_shadow_map_size,
+            ),
+        };
+
+        let depth_attachment = depth_attachments
             .entry(base_array_layer)
             .or_insert_with(|| {
                 let depth_texture_view =
-                    point_light_depth_texture
-                        .texture
-                        .create_view(&TextureViewDescriptor {
-                            label: Some("point_light_shadow_map_texture_view"),
-                            format: None,
-                            dimension: Some(TextureViewDimension::D2),
-                            usage: None,
-                            aspect: TextureAspect::All,
-                            base_mip_level: 0,
-                            mip_level_count: None,
-                            base_array_layer,
-                            array_layer_count: Some(1u32),
-                        });
+                    depth_texture.texture.create_view(&TextureViewDescriptor {
+                        label: Some("point_light_shadow_map_texture_view"),
+                        format: None,
+                        dimension: Some(TextureViewDimension::D2),
+                        usage: None,
+                        aspect: TextureAspect::All,
+                        base_mip_level: 0,
+                        mip_level_count: None,
+                        base_array_layer,
+                        array_layer_count: Some(1u32),
+                    });
 
                 DepthStencilViewAttachment::new(
                     DepthStencilViews::DepthOnly {
@@ -2284,12 +2376,7 @@ fn create_point_shadow_maps(
             },
             ExtractedView {
                 retained_view_entity,
-                viewport: UVec4::new(
-                    0,
-                    0,
-                    point_light_shadow_map_size,
-                    point_light_shadow_map_size,
-                ),
+                viewport: UVec4::new(0, 0, shadow_map_size, shadow_map_size),
                 world_from_view: view_translation * *view_rotation,
                 clip_from_world: None,
                 clip_from_view: cube_face_projection,
@@ -2305,6 +2392,15 @@ fn create_point_shadow_maps(
             (*light_render_layers).clone(),
             RootNonCameraView(Core3d.intern()),
         ));
+        // emm: a bake light draws only the faces in its mask.
+        if kept
+            .as_ref()
+            .is_some_and(|(bake, ..)| bake.faces & 1 << face_index == 0)
+        {
+            commands
+                .entity(view_light_entity)
+                .remove::<RootNonCameraView>();
+        }
 
         if !matches!(
             gpu_preprocessing_support_max_supported_mode,
@@ -2332,6 +2428,8 @@ fn create_spot_shadow_map(
     spot_light_frustum: Option<&Frustum>,
     directional_light_shadow_map_size: u32,
     gpu_preprocessing_support_max_supported_mode: GpuPreprocessingMode,
+    // emm
+    kept: Option<KeptBakeTarget>,
 ) {
     let spot_world_from_view = spot_light_world_from_view(&light.transform);
     let spot_world_from_view = spot_world_from_view.into();
@@ -2342,23 +2440,35 @@ fn create_spot_shadow_map(
 
     let base_array_layer = (num_directional_cascades_enabled + light_index) as u32;
 
-    let depth_attachment = directional_light_depth_attachments
+    // emm: a bake light draws into its kept slot, at its class's size, or not at all with its
+    // one face, 0, out of its mask.
+    let drawn = kept.as_ref().is_none_or(|(bake, ..)| bake.faces & 1 != 0);
+    let (depth_attachments, depth_texture, base_array_layer, shadow_map_size) = match kept {
+        Some((bake, texture, attachments)) => {
+            (attachments, texture, bake.slot, texture.texture.width())
+        }
+        None => (
+            directional_light_depth_attachments,
+            directional_light_depth_texture,
+            base_array_layer,
+            directional_light_shadow_map_size,
+        ),
+    };
+
+    let depth_attachment = depth_attachments
         .entry(base_array_layer)
         .or_insert_with(|| {
-            let depth_texture_view =
-                directional_light_depth_texture
-                    .texture
-                    .create_view(&TextureViewDescriptor {
-                        label: Some("spot_light_shadow_map_texture_view"),
-                        format: None,
-                        dimension: Some(TextureViewDimension::D2),
-                        usage: None,
-                        aspect: TextureAspect::All,
-                        base_mip_level: 0,
-                        mip_level_count: None,
-                        base_array_layer,
-                        array_layer_count: Some(1u32),
-                    });
+            let depth_texture_view = depth_texture.texture.create_view(&TextureViewDescriptor {
+                label: Some("spot_light_shadow_map_texture_view"),
+                format: None,
+                dimension: Some(TextureViewDimension::D2),
+                usage: None,
+                aspect: TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: None,
+                base_array_layer,
+                array_layer_count: Some(1u32),
+            });
 
             DepthStencilViewAttachment::new(
                 DepthStencilViews::DepthOnly {
@@ -2378,12 +2488,7 @@ fn create_spot_shadow_map(
         },
         ExtractedView {
             retained_view_entity,
-            viewport: UVec4::new(
-                0,
-                0,
-                directional_light_shadow_map_size,
-                directional_light_shadow_map_size,
-            ),
+            viewport: UVec4::new(0, 0, shadow_map_size, shadow_map_size),
             world_from_view: spot_world_from_view,
             clip_from_view: spot_projection,
             clip_from_world: None,
@@ -2398,6 +2503,11 @@ fn create_spot_shadow_map(
         (*light_render_layers).clone(),
         RootNonCameraView(Core3d.intern()),
     ));
+    if !drawn {
+        commands
+            .entity(view_light_entity)
+            .remove::<RootNonCameraView>();
+    }
 
     if !matches!(
         gpu_preprocessing_support_max_supported_mode,

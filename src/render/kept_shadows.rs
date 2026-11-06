@@ -11,7 +11,7 @@ use bevy_render::{
     Render, RenderApp, RenderSystems,
 };
 
-use crate::CORE_3D_SHADOW_MAP_FORMAT;
+use crate::{prepare_lights, CORE_3D_SHADOW_MAP_FORMAT};
 
 /// emm: the kept shadow textures: four size classes, each `sizes[class]` texels square, holding a
 /// cube array of `point_slots[class]` cube maps and a 2D array of `spot_slots[class]` maps. A new
@@ -33,6 +33,18 @@ pub struct KeptShadow {
     pub class: u8,
     pub slot: u32,
     pub normal_bias: f32,
+}
+
+/// emm: on a point or spot light with `shadow_maps_enabled`: a bake light, whose shadow views draw
+/// into the kept map at `slot` of size class `class` in place of Bevy's live shadow maps, at the
+/// class's size, and only the faces whose bits are set in `faces` (bit `i` for Bevy's cube face
+/// `i`, looking along +X, −X, +Y, −Y, −Z and +Z; a spot's one view is face 0). It takes no live
+/// shadow map layer and its own light samples none, so it is kept hidden at intensity 0.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct KeptShadowBake {
+    pub class: u8,
+    pub slot: u32,
+    pub faces: u8,
 }
 
 /// emm: `ClusteredLight.kept`'s flag for a light with a [`KeptShadow`], over its class in bits 24
@@ -61,7 +73,10 @@ impl Plugin for KeptShadowPlugin {
         };
         render_app.add_systems(
             Render,
-            prepare_kept_shadow_textures.in_set(RenderSystems::PrepareResources),
+            // Before `prepare_lights`, which points bake lights' views at them.
+            prepare_kept_shadow_textures
+                .in_set(RenderSystems::CreateViews)
+                .before(prepare_lights),
         );
     }
 }
