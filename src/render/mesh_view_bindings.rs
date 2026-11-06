@@ -56,8 +56,8 @@ use crate::{
     prepass,
     resources::{AtmosphereBuffer, AtmosphereSampler, AtmosphereTextures, GpuAtmosphere},
     Bluenoise, ExtractedAtmosphere, FogMeta, GlobalClusterableObjectMeta, GpuClusteredLights,
-    GpuFog, GpuLights, LightMeta, LightProbesBuffer, LightProbesUniform, MeshPipeline,
-    MeshPipelineKey, RenderViewLightProbes, ScreenSpaceAmbientOcclusionResources,
+    GpuFog, GpuLights, KeptShadowTextures, LightMeta, LightProbesBuffer, LightProbesUniform,
+    MeshPipeline, MeshPipelineKey, RenderViewLightProbes, ScreenSpaceAmbientOcclusionResources,
     ScreenSpaceReflectionsBuffer, ScreenSpaceReflectionsUniform, ShadowSamplers,
     ViewClusterBindings, ViewShadowBindings, ViewTransmissionTexture,
     CLUSTERED_FORWARD_STORAGE_BUFFER_COUNT,
@@ -359,6 +359,17 @@ fn layout_entries(
             ),
         ),
     );
+    // emm: the kept shadows, per size class, sampled with the shadow comparison samplers
+    entries = entries.extend_with_indices((
+        (40, texture_cube_array(TextureSampleType::Depth)),
+        (41, texture_cube_array(TextureSampleType::Depth)),
+        (42, texture_cube_array(TextureSampleType::Depth)),
+        (43, texture_cube_array(TextureSampleType::Depth)),
+        (44, texture_2d_array(TextureSampleType::Depth)),
+        (45, texture_2d_array(TextureSampleType::Depth)),
+        (46, texture_2d_array(TextureSampleType::Depth)),
+        (47, texture_2d_array(TextureSampleType::Depth)),
+    ));
 
     if layout_key.contains(MeshPipelineViewLayoutKey::DISTANCE_FOG) {
         entries = entries.extend_with_indices((
@@ -713,6 +724,7 @@ pub fn prepare_mesh_view_bind_groups(
         area_light_luts,
         dfg_lut,
         ambient_data,
+        kept_shadows,
     ): (
         Res<DecalsBuffer>,
         Res<RenderClusteredDecals>,
@@ -721,6 +733,7 @@ pub fn prepare_mesh_view_bind_groups(
         Res<AreaLightLuts>,
         Res<DfgLut>,
         Res<AmbientDataBuffer>,
+        Res<KeptShadowTextures>,
     ),
     // TODO: Figure out how to reuse the memory. `BindGroupEntry` is non-send on wasm with atomics.
     #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
@@ -820,6 +833,19 @@ pub fn prepare_mesh_view_bind_groups(
                 (12, light_probes_binding.clone()),
                 (39, ambient_data.0.as_entire_binding()),
                 (14, visibility_ranges_buffer.as_entire_binding()),
+            ));
+            // emm
+            let [point_0, point_1, point_2, point_3] = &kept_shadows.point;
+            let [spot_0, spot_1, spot_2, spot_3] = &kept_shadows.spot;
+            entries = entries.extend_with_indices((
+                (40, &point_0.default_view),
+                (41, &point_1.default_view),
+                (42, &point_2.default_view),
+                (43, &point_3.default_view),
+                (44, &spot_0.default_view),
+                (45, &spot_1.default_view),
+                (46, &spot_2.default_view),
+                (47, &spot_3.default_view),
             ));
 
             if let Some(view_fog_offset) = view_fog_offset {

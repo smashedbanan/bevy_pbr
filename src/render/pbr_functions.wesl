@@ -481,6 +481,11 @@ fn apply_pbr_lighting(
                 && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             shadow = shadows::fetch_point_shadow(light_id, in.world_position, in.world_normal, in.frag_coord.xy);
         }
+        // emm: a kept shadow darkens what the live one, if any, lets through.
+        if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
+                && (view_bindings::clustered_lights.data[light_id].kept & mesh_view_types::KEPT_SHADOW_BIT) != 0u) {
+            shadow *= shadows::fetch_kept_point_shadow(light_id, in.world_position, in.world_normal, in.frag_coord.xy);
+        }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
         if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
@@ -507,6 +512,11 @@ fn apply_pbr_lighting(
         if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
                 && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             transmitted_shadow = shadows::fetch_point_shadow(light_id, diffuse_transmissive_lobe_world_position, -in.world_normal, in.frag_coord.xy);
+        }
+        // emm
+        if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
+                && (view_bindings::clustered_lights.data[light_id].kept & mesh_view_types::KEPT_SHADOW_BIT) != 0u) {
+            transmitted_shadow *= shadows::fetch_kept_point_shadow(light_id, diffuse_transmissive_lobe_world_position, -in.world_normal, in.frag_coord.xy);
         }
 
         let transmitted_light_contrib =
@@ -542,6 +552,17 @@ fn apply_pbr_lighting(
                 in.frag_coord.xy,
             );
         }
+        // emm: a kept shadow darkens what the live one, if any, lets through.
+        if ((in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u
+                && (view_bindings::clustered_lights.data[light_id].kept & mesh_view_types::KEPT_SHADOW_BIT) != 0u) {
+            shadow *= shadows::fetch_kept_spot_shadow(
+                light_id,
+                in.world_position,
+                in.world_normal,
+                view_bindings::clustered_lights.data[light_id].shadow_map_near_z,
+                in.frag_coord.xy,
+            );
+        }
 
         @if(CONTACT_SHADOWS && DEPTH_PREPASS)
         if contact_shadow_enabled && (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u && shadow > 0.0 &&
@@ -568,6 +589,17 @@ fn apply_pbr_lighting(
         if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
                 && (view_bindings::clustered_lights.data[light_id].flags & mesh_view_types::POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
             transmitted_shadow = shadows::fetch_spot_shadow(
+                light_id,
+                diffuse_transmissive_lobe_world_position,
+                -in.world_normal,
+                view_bindings::clustered_lights.data[light_id].shadow_map_near_z,
+                in.frag_coord.xy,
+            );
+        }
+        // emm
+        if ((in.flags & (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)) == (MESH_FLAGS_SHADOW_RECEIVER_BIT | MESH_FLAGS_TRANSMITTED_SHADOW_RECEIVER_BIT)
+                && (view_bindings::clustered_lights.data[light_id].kept & mesh_view_types::KEPT_SHADOW_BIT) != 0u) {
+            transmitted_shadow *= shadows::fetch_kept_spot_shadow(
                 light_id,
                 diffuse_transmissive_lobe_world_position,
                 -in.world_normal,

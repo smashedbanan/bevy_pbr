@@ -2,8 +2,8 @@ import package::render::{
     mesh_view_types::POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE,
     mesh_view_bindings as view_bindings,
     shadow_sampling::{
-        SPOT_SHADOW_TEXEL_SIZE, sample_shadow_cubemap, sample_shadow_cubemap_pcss,
-        sample_shadow_map, sample_shadow_map_pcss,
+        SPOT_SHADOW_TEXEL_SIZE, sample_shadow_cubemap_in, sample_shadow_cubemap_pcss,
+        sample_shadow_map, sample_shadow_map_in, sample_shadow_map_pcss,
     }
 };
 
@@ -20,6 +20,67 @@ fn fetch_point_shadow(
     surface_normal: vec3<f32>,
     frag_coord_xy: vec2<f32>,
 ) -> f32 {
+    return fetch_point_shadow_in(
+        view_bindings::point_shadow_textures,
+        light_id,
+        view_bindings::clustered_lights.data[light_id].shadow_normal_bias,
+        light_id,
+        frag_position,
+        surface_normal,
+        frag_coord_xy,
+    );
+}
+
+// emm: a kept shadow's slot and size class in `ClusteredLight.kept`.
+fn kept_slot(kept: u32) -> u32 {
+    return kept & 0xffffffu;
+}
+fn kept_class(kept: u32) -> u32 {
+    return (kept >> 24u) & 0x7fu;
+}
+
+// emm: the light's kept shadow: `fetch_point_shadow` on its class's kept cube array at its slot,
+// with its kept normal bias.
+fn fetch_kept_point_shadow(
+    light_id: u32,
+    frag_position: vec4<f32>,
+    surface_normal: vec3<f32>,
+    frag_coord_xy: vec2<f32>,
+) -> f32 {
+    let light = &view_bindings::clustered_lights.data[light_id];
+    let slot = kept_slot((*light).kept);
+    let bias = (*light).kept_normal_bias;
+    switch kept_class((*light).kept) {
+        case 0u: {
+            return fetch_point_shadow_in(view_bindings::kept_point_shadows_0, slot, bias,
+                light_id, frag_position, surface_normal, frag_coord_xy);
+        }
+        case 1u: {
+            return fetch_point_shadow_in(view_bindings::kept_point_shadows_1, slot, bias,
+                light_id, frag_position, surface_normal, frag_coord_xy);
+        }
+        case 2u: {
+            return fetch_point_shadow_in(view_bindings::kept_point_shadows_2, slot, bias,
+                light_id, frag_position, surface_normal, frag_coord_xy);
+        }
+        default: {
+            return fetch_point_shadow_in(view_bindings::kept_point_shadows_3, slot, bias,
+                light_id, frag_position, surface_normal, frag_coord_xy);
+        }
+    }
+}
+
+// emm: `fetch_point_shadow` on cube `layer` of `textures`, with `normal_bias` in place of the
+// light's.
+fn fetch_point_shadow_in(
+    textures: texture_depth_cube_array,
+    layer: u32,
+    normal_bias: f32,
+    light_id: u32,
+    frag_position: vec4<f32>,
+    surface_normal: vec3<f32>,
+    frag_coord_xy: vec2<f32>,
+) -> f32 {
     let light = &view_bindings::clustered_lights.data[light_id];
 
     // because the shadow maps align with the axes and the frustum planes are at 45 degrees
@@ -31,7 +92,7 @@ fn fetch_point_shadow(
     // The normal bias here is already scaled by the texel size at 1 world unit from the light.
     // The texel size increases proportionally with distance from the light so multiplying by
     // distance to light scales the normal bias to the texel size at the fragment distance.
-    let normal_offset = (*light).shadow_normal_bias * distance_to_light * surface_normal.xyz;
+    let normal_offset = normal_bias * distance_to_light * surface_normal.xyz;
     let depth_offset = (*light).shadow_depth_bias * normalize(surface_to_light.xyz);
     let offset_position = frag_position.xyz + normal_offset + depth_offset;
 
@@ -52,10 +113,11 @@ fn fetch_point_shadow(
     // sampling.
     if ((*light).soft_shadow_size > 0.0) {
         return sample_shadow_cubemap_pcss(
+            textures,
             frag_ls * flip_z,
             distance_to_light,
             depth,
-            light_id,
+            layer,
             (*light).soft_shadow_size,
             frag_coord_xy,
         );
@@ -63,10 +125,66 @@ fn fetch_point_shadow(
 
     // Do the lookup, using HW PCF and comparison. Cubemaps assume a left-handed
     // coordinate space, so we have to flip the z-axis when sampling.
-    return sample_shadow_cubemap(frag_ls * flip_z, distance_to_light, depth, light_id, frag_coord_xy);
+    return sample_shadow_cubemap_in(textures, frag_ls * flip_z, distance_to_light, depth, layer, frag_coord_xy);
 }
 
 fn fetch_spot_shadow(
+    light_id: u32,
+    frag_position: vec4<f32>,
+    surface_normal: vec3<f32>,
+    near_z: f32,
+    frag_coord_xy: vec2<f32>,
+) -> f32 {
+    return fetch_spot_shadow_in(
+        view_bindings::directional_shadow_textures,
+        i32(light_id) + view_bindings::lights.spot_light_shadowmap_offset,
+        view_bindings::clustered_lights.data[light_id].shadow_normal_bias,
+        light_id,
+        frag_position,
+        surface_normal,
+        near_z,
+        frag_coord_xy,
+    );
+}
+
+// emm: the light's kept shadow: `fetch_spot_shadow` on its class's kept 2D array at its slot,
+// with its kept normal bias.
+fn fetch_kept_spot_shadow(
+    light_id: u32,
+    frag_position: vec4<f32>,
+    surface_normal: vec3<f32>,
+    near_z: f32,
+    frag_coord_xy: vec2<f32>,
+) -> f32 {
+    let light = &view_bindings::clustered_lights.data[light_id];
+    let slot = i32(kept_slot((*light).kept));
+    let bias = (*light).kept_normal_bias;
+    switch kept_class((*light).kept) {
+        case 0u: {
+            return fetch_spot_shadow_in(view_bindings::kept_spot_shadows_0, slot, bias,
+                light_id, frag_position, surface_normal, near_z, frag_coord_xy);
+        }
+        case 1u: {
+            return fetch_spot_shadow_in(view_bindings::kept_spot_shadows_1, slot, bias,
+                light_id, frag_position, surface_normal, near_z, frag_coord_xy);
+        }
+        case 2u: {
+            return fetch_spot_shadow_in(view_bindings::kept_spot_shadows_2, slot, bias,
+                light_id, frag_position, surface_normal, near_z, frag_coord_xy);
+        }
+        default: {
+            return fetch_spot_shadow_in(view_bindings::kept_spot_shadows_3, slot, bias,
+                light_id, frag_position, surface_normal, near_z, frag_coord_xy);
+        }
+    }
+}
+
+// emm: `fetch_spot_shadow` on layer `array_index` of `textures`, with `normal_bias` in place of
+// the light's.
+fn fetch_spot_shadow_in(
+    textures: texture_depth_2d_array,
+    array_index: i32,
+    normal_bias: f32,
     light_id: u32,
     frag_position: vec4<f32>,
     surface_normal: vec3<f32>,
@@ -91,7 +209,7 @@ fn fetch_spot_shadow(
     let offset_position =
         -surface_to_light
         + ((*light).shadow_depth_bias * normalize(surface_to_light))
-        + (surface_normal.xyz * (*light).shadow_normal_bias) * distance_to_light;
+        + (surface_normal.xyz * normal_bias) * distance_to_light;
 
     let light_inv_rot = orthonormalize(fwd);
 
@@ -110,9 +228,9 @@ fn fetch_spot_shadow(
     let depth = near_z / -projected_position.z;
 
     // If soft shadows are enabled, use the PCSS path.
-    let array_index = i32(light_id) + view_bindings::lights.spot_light_shadowmap_offset;
     if ((*light).soft_shadow_size > 0.0) {
         return sample_shadow_map_pcss(
+            textures,
             shadow_uv,
             depth,
             array_index,
@@ -122,7 +240,8 @@ fn fetch_spot_shadow(
         );
     }
 
-    return sample_shadow_map(
+    return sample_shadow_map_in(
+        textures,
         shadow_uv,
         depth,
         array_index,
@@ -201,6 +320,7 @@ fn sample_directional_cascade(
     // If soft shadows are enabled, use the PCSS path.
     if ((*light).soft_shadow_size > 0.0) {
         return sample_shadow_map_pcss(
+            view_bindings::directional_shadow_textures,
             light_local.xy,
             light_local.z,
             array_index,

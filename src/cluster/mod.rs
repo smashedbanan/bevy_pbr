@@ -28,8 +28,9 @@ pub(crate) mod gpu;
 
 // NOTE: this must be kept in sync with the same constants in
 // `mesh_view_types.wesl`.
-// emm: 170, not 204, so 170 of the 96-byte lights the clip plane makes fit WebGL 2's 16 KiB.
-pub const MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS: usize = 170;
+// emm: 146, not 204, so 146 of the 112-byte lights the clip plane and kept shadow make fit WebGL
+// 2's 16 KiB.
+pub const MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS: usize = 146;
 // Make sure that the clusterable object buffer doesn't overflow the maximum
 // size of a UBO on WebGL 2.
 const _: () =
@@ -135,6 +136,14 @@ pub struct GpuClusteredLight {
     /// emm: the light's [`LightClipPlane`](crate::LightClipPlane): it lights no point `p` with
     /// `dot(xyz, p) + w < 0`.
     pub(crate) clip_plane: Vec4,
+    /// emm: for a light with a [`KeptShadow`](crate::KeptShadow), its slot, its class in bits 24
+    /// to 30 and `KEPT_SHADOW_BIT`; 0 without one.
+    pub(crate) kept: u32,
+    /// emm: the faces of a point light's live shadow map drawn this frame; 0 for now.
+    pub(crate) live_faces: u32,
+    /// emm: the normal bias of the light's kept map, scaled for its class's texel size.
+    pub(crate) kept_normal_bias: f32,
+    pub(crate) _padding: u32,
 }
 
 /// Contains information about clusterable objects in the scene that's global:

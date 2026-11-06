@@ -1,5 +1,7 @@
 mod fog;
 mod gpu_preprocess;
+// emm
+mod kept_shadows;
 mod light;
 pub(crate) mod mesh;
 mod mesh_bindings;
@@ -9,6 +11,7 @@ pub(crate) mod skin;
 
 pub use fog::*;
 pub use gpu_preprocess::*;
+pub use kept_shadows::*;
 pub use light::*;
 pub use mesh::*;
 pub use mesh_bindings::MeshLayouts;

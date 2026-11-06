@@ -1,11 +1,12 @@
 # bevy_pbr for ExtractMeMaybe
 
 `bevy_pbr` 0.20.1 as published on crates.io (upstream bevyengine/bevy `a0577b5c`,
-`.cargo_vcs_info.json`), with four changes for
+`.cargo_vcs_info.json`), with five changes for
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
 light per fragment, the main pass draws correctly at a smaller size under
 `MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
-light at a plane, and a point or spot light can cast from other layers than it lights.
+light at a plane, a point or spot light can cast from other layers than it lights, and a point or
+spot light can sample a shadow map kept across frames beside its live one.
 
 Each change is marked `emm:` in the source.
 
@@ -37,6 +38,46 @@ copies it to the light's render entity, removing it there when the light has non
 `queue_shadows` reads it there in place of the shadow view's layers. `queue_shadows` tests a mesh
 only when it queues it anew (newly visible to the view, or respecialized), so a light should get
 its caster layers at spawn: a later change reaches a mesh only when that mesh is next queued.
+
+## The kept shadows
+
+`render/kept_shadows.rs`: `KeptShadowLayout`, a main-world resource, gives four size classes,
+each `sizes[class]` texels square with `point_slots[class]` cube maps and `spot_slots[class]` 2D
+maps. `KeptShadowPlugin` (added by `PbrPlugin`) extracts it, and the render-world resource
+`KeptShadowTextures` holds per class a cube array and a 2D array (`CORE_3D_SHADOW_MAP_FORMAT`,
+`RENDER_ATTACHMENT | TEXTURE_BINDING`), allocated outside `TextureCache` and anew only when the
+layout's `generation` changes, so their contents last across frames. A new generation's textures
+start zero, which is far: unshadowed. A class with no slots gets a one-slot dummy (six layers for a
+cube array), as Bevy's own shadow textures do.
+
+- `KeptShadow { class, slot, normal_bias }` on a point or spot light: `extract_lights` copies it
+  to `ExtractedPointLight::kept_shadow` (`Changed<KeptShadow>` re-extracts the light), and
+  `prepare_lights` writes `GpuClusteredLight::kept`, `slot | class << 24 | KEPT_SHADOW_BIT`
+  (`1 << 31`), 0 without one, and `kept_normal_bias`, which stands in for the light's own normal
+  bias on the kept map. `live_faces` is written 0 and read by no shader yet. The light grows from
+  96 to 112 bytes, so `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS` drops from 170 to 146.
+- `mesh_view_bindings`: bindings 40 to 43, `kept_point_shadows_0` to `_3`
+  (`texture_depth_cube_array`), and 44 to 47, `kept_spot_shadows_0` to `_3`
+  (`texture_depth_2d_array`), by class, sampled with the comparison samplers Bevy's own shadow
+  maps use (binding 3 for points, 6 for spots; the two are made alike).
+- `render/shadow_sampling.wesl`: every sampling function takes the texture it samples, so the
+  spot filters' texel size comes from the texture sampled, not from the sun's
+  (`directional_shadow_textures`); a 128² kept spot filters over its own texels. The functions
+  take array textures only, dropping the `NO_ARRAY_TEXTURES_SUPPORT` and
+  `NO_CUBE_ARRAY_TEXTURES_SUPPORT` paths (WebGL 2, the iOS simulator), which the ambient hook's
+  storage buffer already rules out for WebGL 2. `sample_shadow_map_hardware`, `sample_shadow_map`
+  and `sample_shadow_cubemap` keep their signatures, as wrappers over the `_in` variants, for
+  volumetric fog.
+- `render/shadows.wesl`: `fetch_point_shadow` and `fetch_spot_shadow` are wrappers over `_in`
+  variants that take the texture, layer and normal bias; `fetch_kept_point_shadow` and
+  `fetch_kept_spot_shadow` call them on the light's class's kept texture at its slot with its
+  kept normal bias.
+- `render/pbr_functions.wesl`: a point or spot light's shadow is multiplied by its kept shadow
+  when the receiver takes shadows and the light's `kept & KEPT_SHADOW_BIT` is set, whether or not
+  the light has a live shadow (`SHADOWS_ENABLED`), at the transmitted light's shadow gates as at
+  the direct ones. Every light field the kept fetch reads (position, depth bias, near plane, the
+  cube projection terms or spot direction and tangent) is filled whether or not the light's
+  shadow maps are enabled. Volumetric fog does not sample kept shadows.
 
 ## The main pass at a smaller size
 

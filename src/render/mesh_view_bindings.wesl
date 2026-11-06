@@ -39,6 +39,16 @@ enable wgpu_binding_array;
 @group(0) @binding(11) var<uniform> globals: Globals;
 // emm: the app's ambient data (`AmbientDataBuffer`), read by an app's `ambient_hook.wesl`.
 @group(0) @binding(39) var<storage> ambient_data: array<vec4<f32>>;
+// emm: the kept shadows (`KeptShadowTextures`), per size class, the points sampled with binding 3
+// and the spots with binding 6, as the live ones.
+@group(0) @binding(40) var kept_point_shadows_0: texture_depth_cube_array;
+@group(0) @binding(41) var kept_point_shadows_1: texture_depth_cube_array;
+@group(0) @binding(42) var kept_point_shadows_2: texture_depth_cube_array;
+@group(0) @binding(43) var kept_point_shadows_3: texture_depth_cube_array;
+@group(0) @binding(44) var kept_spot_shadows_0: texture_depth_2d_array;
+@group(0) @binding(45) var kept_spot_shadows_1: texture_depth_2d_array;
+@group(0) @binding(46) var kept_spot_shadows_2: texture_depth_2d_array;
+@group(0) @binding(47) var kept_spot_shadows_3: texture_depth_2d_array;
 
 @group(0) @binding(12) var<uniform> light_probes: types::LightProbes;
 

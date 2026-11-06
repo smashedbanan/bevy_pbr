@@ -15,7 +15,17 @@ struct ClusteredLight {
     range: f32,
     // emm: no point p with dot(clip_plane.xyz, p) + clip_plane.w < 0 is lit.
     clip_plane: vec4<f32>,
+    // emm: a kept shadow's slot | class << 24 | KEPT_SHADOW_BIT, or 0 without one.
+    kept: u32,
+    // emm: written 0 for now.
+    live_faces: u32,
+    // emm: the kept map's normal bias, scaled for its class's texel size.
+    kept_normal_bias: f32,
 };
+
+// emm: `ClusteredLight.kept`'s flag for a light with a kept shadow, the top bit, over its class
+// (bits 24 to 30) and slot.
+const KEPT_SHADOW_BIT: u32 = 1u << 31u;
 
 const POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT: u32                    = 1u << 0u;
 const POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE: u32                  = 1u << 1u;
@@ -128,7 +138,7 @@ struct ClusterOffsetsAndCounts {
 };
 @if(!AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3)
 struct ClusteredLights {
-    data: array<ClusteredLight, 170u>,
+    data: array<ClusteredLight, 146u>,
 };
 @if(!AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3)
 struct ClusterableObjectIndexLists {

@@ -112,6 +112,8 @@ pub struct ExtractedPointLight {
     pub affects_lightmapped_mesh_diffuse: bool,
     /// emm: the light's [`LightClipPlane`], or one that clips nothing.
     pub clip_plane: Vec4,
+    /// emm: the light's [`KeptShadow`], if it has one.
+    pub kept_shadow: Option<KeptShadow>,
 }
 
 #[derive(Component, Debug)]
@@ -366,6 +368,7 @@ pub fn extract_lights(
                 // emm
                 Option<&LightClipPlane>,
                 Option<&ShadowCasterLayers>,
+                Option<&KeptShadow>,
             ),
             Or<(
                 Changed<PointLight>,
@@ -378,6 +381,7 @@ pub fn extract_lights(
                 // emm
                 Changed<LightClipPlane>,
                 Changed<ShadowCasterLayers>,
+                Changed<KeptShadow>,
             )>,
         >,
     >,
@@ -396,6 +400,7 @@ pub fn extract_lights(
                 // emm
                 Option<&LightClipPlane>,
                 Option<&ShadowCasterLayers>,
+                Option<&KeptShadow>,
             ),
             Or<(
                 Changed<SpotLight>,
@@ -408,6 +413,7 @@ pub fn extract_lights(
                 // emm
                 Changed<LightClipPlane>,
                 Changed<ShadowCasterLayers>,
+                Changed<KeptShadow>,
             )>,
         >,
     >,
@@ -508,6 +514,7 @@ pub fn extract_lights(
         volumetric_light,
         clip_plane,
         caster_layers,
+        kept_shadow,
     ) in point_lights.iter()
     {
         if !view_visibility.get() {
@@ -622,6 +629,7 @@ pub fn extract_lights(
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
+            kept_shadow: kept_shadow.copied(),
         };
         entity_commands.insert((
             extracted_point_light,
@@ -648,6 +656,7 @@ pub fn extract_lights(
         volumetric_light,
         clip_plane,
         caster_layers,
+        kept_shadow,
     ) in spot_lights.iter()
     {
         if !view_visibility.get() {
@@ -769,6 +778,7 @@ pub fn extract_lights(
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
+            kept_shadow: kept_shadow.copied(),
         };
         entity_commands.insert((
             extracted_spot_light,
@@ -1441,6 +1451,12 @@ pub fn prepare_lights(
                     0.0
                 },
                 clip_plane: light.clip_plane,
+                kept: light.kept_shadow.map_or(0, |kept| {
+                    kept.slot | u32::from(kept.class) << 24 | KEPT_SHADOW_BIT
+                }),
+                live_faces: 0,
+                kept_normal_bias: light.kept_shadow.map_or(0.0, |kept| kept.normal_bias),
+                _padding: 0,
             });
         global_clusterable_object_meta
             .entity_to_index
@@ -1473,6 +1489,10 @@ pub fn prepare_lights(
                     range: light.range,
                     soft_shadow_size: 0.0,
                     clip_plane: NO_CLIP_PLANE,
+                    kept: 0,
+                    live_faces: 0,
+                    kept_normal_bias: 0.0,
+                    _padding: 0,
                 });
             global_clusterable_object_meta
                 .entity_to_index

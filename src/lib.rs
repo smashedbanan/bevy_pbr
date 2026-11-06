@@ -245,6 +245,8 @@ impl Plugin for PbrPlugin {
                 ScatteringMediumPlugin,
                 AtmospherePlugin,
                 GpuClusteringPlugin,
+                // emm
+                KeptShadowPlugin,
             ));
 
         #[cfg(feature = "bevy_gltf")]
