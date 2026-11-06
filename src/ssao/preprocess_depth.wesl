@@ -62,7 +62,9 @@ fn preprocess_depth(@builtin(global_invocation_id) global_id: vec3<u32>, @builti
     let depths_uv = (vec2<f32>(pixel_coordinates0) + view.viewport.xy) / input_depth_size;
     var depths = textureGather(input_depth, point_clamp_sampler, depths_uv, vec2<i32>(1i, 1i));
     // emm: under a `MainPassResolutionOverride`, a texel past the render-size corner reads the
-    // corner's last, as the clamp sampler reads a native texture's last past its edge.
+    // corner's last, as the clamp sampler reads a native texture's last past its edge. This
+    // changes no stored texel: `past` holds only for a gather at an odd size's last texel, and
+    // every store it feeds, in each mip, lands past that mip's edge, where it is dropped.
     let overridden = view.main_pass_viewport.zw != view.viewport.zw;
     let past = (vec2<f32>(pixel_coordinates3) >= view.main_pass_viewport.zw) & overridden;
     if past.x {

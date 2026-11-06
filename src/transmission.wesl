@@ -108,6 +108,16 @@ fn fetch_transmissive_background_non_rough(offset_position: vec2<f32>, frag_coor
 fn fetch_transmissive_background(offset_position: vec2<f32>, frag_coord: vec3<f32>, view_z: f32, transmission_roughness: f32) -> vec4<f32> {
     // Calculate view aspect ratio, used to scale offset so that it's proportionate
     let aspect = view_bindings::view.viewport.z / view_bindings::view.viewport.w;
+    // emm: under a `MainPassResolutionOverride` the picture fills only the main pass's corner of
+    // the window-size copy, so the blur's offsets scale by the main pass's size over the window's,
+    // to the same share of the picture, and each tap's colour read clamps into the corner as in
+    // `fetch_transmissive_background_non_rough`. An axis the override leaves equal selects exactly
+    // 1. The depth test below stays unclamped.
+    let window = view_bindings::view.viewport.zw;
+    let main_pass = view_bindings::view.main_pass_viewport.zw;
+    let blur_scale = select(main_pass / window, vec2(1.0), main_pass == window);
+    let full_size = vec2<f32>(textureDimensions(view_bindings::view_transmission_texture));
+    let corner = view_bindings::view.main_pass_viewport;
 
     // Calculate how “blurry” the transmission should be.
     // Blur is more or less eyeballed to look approximately “right”, since the “correct”
@@ -179,13 +189,19 @@ fn fetch_transmissive_background(offset_position: vec2<f32>, frag_coord: vec3<f3
         let rotated_spiral_offset = (rotation_matrix * spiral_offset) * vec2(1.0, aspect);
 
         // Calculate final offset position, with blur and spiral offset
-        let modified_offset_position = offset_position + rotated_spiral_offset * blur_intensity * (1.0 - f32(pixel_checkboard) * 0.1);
+        // emm: `blur_scale`.
+        let modified_offset_position = offset_position + rotated_spiral_offset * blur_scale * blur_intensity * (1.0 - f32(pixel_checkboard) * 0.1);
 
         // Sample the view transmission texture at the offset position + noise offset, to get the background color
         var sample = textureSampleLevel(
             view_bindings::view_transmission_texture,
             view_bindings::view_transmission_sampler,
-            modified_offset_position,
+            // emm: the clamped read.
+            clamp(
+                modified_offset_position,
+                (corner.xy + 0.5) / full_size,
+                (corner.xy + corner.zw - 0.5) / full_size,
+            ),
             0.0
         );
 

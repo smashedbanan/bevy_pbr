@@ -55,9 +55,9 @@ fn view_z_to_z_slice(
 }
 
 fn view_fragment_cluster_index(frag_coord: vec2<f32>, view_z: f32, is_orthographic: bool) -> u32 {
-    // emm: `cluster_factors.xy` are clusters per window pixel, set before any
-    // `MainPassResolutionOverride` is: scaled to clusters per main-pass pixel, as the grid spans
-    // the main pass's viewport. An axis the override leaves equal selects exactly 1, as a GPU's
+    // emm: `cluster_factors.xy` are clusters per window pixel, as `prepare_lights` divides by the
+    // extracted view's viewport, the window's size, with or without a `MainPassResolutionOverride`:
+    // scaled to clusters per main-pass pixel, as the grid spans the main pass's viewport. An axis the override leaves equal selects exactly 1, as a GPU's
     // division may round x / x below it, and `floor` would then drop a cluster.
     let window = bindings::view.viewport.zw;
     let main_pass = bindings::view.main_pass_viewport.zw;
