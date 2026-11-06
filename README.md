@@ -1,11 +1,11 @@
 # bevy_pbr for ExtractMeMaybe
 
 `bevy_pbr` 0.20.1 as published on crates.io (upstream bevyengine/bevy `a0577b5c`,
-`.cargo_vcs_info.json`), with three changes for
+`.cargo_vcs_info.json`), with four changes for
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
 light per fragment, the main pass draws correctly at a smaller size under
-`MainPassResolutionOverride`, as an upscaler such as FSR needs, and an app can stop a point or spot
-light at a plane.
+`MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
+light at a plane, and a point or spot light can cast from other layers than it lights.
 
 Each change is marked `emm:` in the source.
 
@@ -27,6 +27,16 @@ Each change is marked `emm:` in the source.
 `mesh_view_types.wesl`), `Vec4::W` (nothing clipped) without one. The light grows from 80 to 96
 bytes, so `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS` drops from 204 to 170 to keep WebGL 2's
 uniform buffer within 16 KiB.
+
+## The shadow caster layers
+
+`ShadowCasterLayers(RenderLayers)` on a `PointLight` or `SpotLight`: its shadow views queue only
+the meshes on these layers, in place of the light's own `RenderLayers`, which still pick the
+cameras it lights and the meshes its views cull from (a caster must meet both). `extract_lights`
+copies it to the light's render entity, removing it there when the light has none, and
+`queue_shadows` reads it there in place of the shadow view's layers. `queue_shadows` tests a mesh
+only when it queues it anew (newly visible to the view, or respecialized), so a light should get
+its caster layers at spawn: a later change reaches a mesh only when that mesh is next queued.
 
 ## The main pass at a smaller size
 

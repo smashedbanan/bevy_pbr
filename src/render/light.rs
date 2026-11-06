@@ -82,6 +82,12 @@ use tracing::{error, warn};
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct LightClipPlane(pub Vec4);
 
+/// emm: the layers whose meshes a point or spot light's shadow views draw, in place of the light's
+/// own [`RenderLayers`], which still choose the views the light lights and the meshes its views
+/// cull from, so one light can light everything and cast from only some of it.
+#[derive(Component, Clone, Debug, PartialEq)]
+pub struct ShadowCasterLayers(pub RenderLayers);
+
 /// emm: what a light without a [`LightClipPlane`] gets: `0·p + 1`, never below 0.
 const NO_CLIP_PLANE: Vec4 = Vec4::W;
 
@@ -359,6 +365,7 @@ pub fn extract_lights(
                 Option<&VolumetricLight>,
                 // emm
                 Option<&LightClipPlane>,
+                Option<&ShadowCasterLayers>,
             ),
             Or<(
                 Changed<PointLight>,
@@ -370,6 +377,7 @@ pub fn extract_lights(
                 Changed<VolumetricLight>,
                 // emm
                 Changed<LightClipPlane>,
+                Changed<ShadowCasterLayers>,
             )>,
         >,
     >,
@@ -387,6 +395,7 @@ pub fn extract_lights(
                 Option<&VolumetricLight>,
                 // emm
                 Option<&LightClipPlane>,
+                Option<&ShadowCasterLayers>,
             ),
             Or<(
                 Changed<SpotLight>,
@@ -398,6 +407,7 @@ pub fn extract_lights(
                 Changed<VolumetricLight>,
                 // emm
                 Changed<LightClipPlane>,
+                Changed<ShadowCasterLayers>,
             )>,
         >,
     >,
@@ -497,6 +507,7 @@ pub fn extract_lights(
         maybe_render_layers,
         volumetric_light,
         clip_plane,
+        caster_layers,
     ) in point_lights.iter()
     {
         if !view_visibility.get() {
@@ -618,6 +629,11 @@ pub fn extract_lights(
             MainEntity::from(main_entity),
             maybe_render_layers.unwrap_or_default().clone(),
         ));
+        // emm
+        match caster_layers {
+            Some(layers) => entity_commands.insert(layers.clone()),
+            None => entity_commands.remove::<ShadowCasterLayers>(),
+        };
     }
 
     for (
@@ -631,6 +647,7 @@ pub fn extract_lights(
         maybe_render_layers,
         volumetric_light,
         clip_plane,
+        caster_layers,
     ) in spot_lights.iter()
     {
         if !view_visibility.get() {
@@ -759,6 +776,11 @@ pub fn extract_lights(
             MainEntity::from(main_entity),
             maybe_render_layers.unwrap_or_default().clone(),
         ));
+        // emm
+        match caster_layers {
+            Some(layers) => entity_commands.insert(layers.clone()),
+            None => entity_commands.remove::<ShadowCasterLayers>(),
+        };
     }
 
     for (
@@ -2700,6 +2722,8 @@ pub fn queue_shadows(
     gpu_preprocessing_support: Res<GpuPreprocessingSupport>,
     mesh_allocator: Res<MeshAllocator>,
     view_light_entities: Query<(&LightEntity, &ExtractedView, &RenderLayers)>,
+    // emm
+    shadow_caster_layers: Query<&ShadowCasterLayers>,
     shadow_map_visible_entities_query: Query<&RenderShadowMapVisibleEntities>,
     specialized_material_pipeline_cache: Res<SpecializedShadowMaterialPipelineCache>,
     mut pending_shadow_queues: ResMut<PendingShadowQueues>,
@@ -2707,6 +2731,21 @@ pub fn queue_shadows(
     mut mesh_instances_queued_this_iteration_scratch_space: Local<MainEntityHashSet>,
 ) {
     for (light_entity, extracted_view_light, view_light_render_layers) in &view_light_entities {
+        // emm: a light with `ShadowCasterLayers` casts from them in place of its own layers.
+        let (LightEntity::Directional {
+            light_entity: light,
+            ..
+        }
+        | LightEntity::Point {
+            light_entity: light,
+            ..
+        }
+        | LightEntity::Spot {
+            light_entity: light,
+        }) = light_entity;
+        let view_light_render_layers = shadow_caster_layers
+            .get(*light)
+            .map_or(view_light_render_layers, |layers| &layers.0);
         let Some(shadow_phase) =
             shadow_render_phases.get_mut(&extracted_view_light.retained_view_entity)
         else {
