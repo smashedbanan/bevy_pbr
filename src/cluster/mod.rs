@@ -139,7 +139,9 @@ pub struct GpuClusteredLight {
     /// emm: for a light with a [`KeptShadow`](crate::KeptShadow), its slot, its class in bits 24
     /// to 30 and `KEPT_SHADOW_BIT`; 0 without one.
     pub(crate) kept: u32,
-    /// emm: the faces of a point light's live shadow map drawn this frame; 0 for now.
+    /// emm: the faces of a point light's live shadow map drawn this frame, its
+    /// [`LiveShadowFaces`](crate::LiveShadowFaces) in bits 0 to 5, all six without; 0 for a rect
+    /// light.
     pub(crate) live_faces: u32,
     /// emm: the normal bias of the light's kept map, scaled for its class's texel size.
     pub(crate) kept_normal_bias: f32,

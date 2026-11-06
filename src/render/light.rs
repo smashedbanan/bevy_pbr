@@ -88,6 +88,16 @@ pub struct LightClipPlane(pub Vec4);
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct ShadowCasterLayers(pub RenderLayers);
 
+/// emm: on a shadowed point light, the faces of its live shadow map drawn this frame: bit `i` for
+/// Bevy's cube face `i`, looking along +X, −X, +Y, −Y, −Z and +Z. A face whose bit is clear is not
+/// drawn and not sampled: a fragment on it takes no live shadow. Without one, all six are; a
+/// removal reaches the render world when the light next changes.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct LiveShadowFaces(pub u8);
+
+/// emm: what a light without [`LiveShadowFaces`] gets: all six faces, as Bevy draws them.
+const ALL_CUBE_FACES: u8 = 0b11_1111;
+
 /// emm: what a light without a [`LightClipPlane`] gets: `0·p + 1`, never below 0.
 const NO_CLIP_PLANE: Vec4 = Vec4::W;
 
@@ -116,6 +126,8 @@ pub struct ExtractedPointLight {
     pub kept_shadow: Option<KeptShadow>,
     /// emm: the light's [`KeptShadowBake`], if it is a bake light.
     pub kept_bake: Option<KeptShadowBake>,
+    /// emm: a point light's [`LiveShadowFaces`], or all six faces; a spot's are all six.
+    pub live_faces: u8,
 }
 
 #[derive(Component, Debug)]
@@ -379,6 +391,7 @@ pub fn extract_lights(
                 Option<&ShadowCasterLayers>,
                 Option<&KeptShadow>,
                 Option<&KeptShadowBake>,
+                Option<&LiveShadowFaces>,
             ),
             Or<(
                 Changed<PointLight>,
@@ -393,6 +406,7 @@ pub fn extract_lights(
                 Changed<ShadowCasterLayers>,
                 Changed<KeptShadow>,
                 Changed<KeptShadowBake>,
+                Changed<LiveShadowFaces>,
             )>,
         >,
     >,
@@ -529,6 +543,7 @@ pub fn extract_lights(
         caster_layers,
         kept_shadow,
         kept_bake,
+        live_faces,
     ) in point_lights.iter()
     {
         if !view_visibility.get() {
@@ -645,6 +660,7 @@ pub fn extract_lights(
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
             kept_shadow: kept_shadow.copied(),
             kept_bake: kept_bake.copied(),
+            live_faces: live_faces.map_or(ALL_CUBE_FACES, |faces| faces.0),
         };
         entity_commands.insert((
             extracted_point_light,
@@ -796,6 +812,7 @@ pub fn extract_lights(
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
             kept_shadow: kept_shadow.copied(),
             kept_bake: kept_bake.copied(),
+            live_faces: ALL_CUBE_FACES,
         };
         entity_commands.insert((
             extracted_spot_light,
@@ -1489,7 +1506,7 @@ pub fn prepare_lights(
                 kept: light.kept_shadow.map_or(0, |kept| {
                     kept.slot | u32::from(kept.class) << 24 | KEPT_SHADOW_BIT
                 }),
-                live_faces: 0,
+                live_faces: light.live_faces.into(),
                 kept_normal_bias: light.kept_shadow.map_or(0.0, |kept| kept.normal_bias),
                 _padding: 0,
             });
@@ -2392,11 +2409,10 @@ fn create_point_shadow_maps(
             (*light_render_layers).clone(),
             RootNonCameraView(Core3d.intern()),
         ));
-        // emm: a bake light draws only the faces in its mask.
-        if kept
-            .as_ref()
-            .is_some_and(|(bake, ..)| bake.faces & 1 << face_index == 0)
-        {
+        // emm: a bake light draws only the faces in its mask, a live light those in its
+        // `LiveShadowFaces`.
+        let faces = kept.as_ref().map_or(light.live_faces, |(bake, ..)| bake.faces);
+        if faces & 1 << face_index == 0 {
             commands
                 .entity(view_light_entity)
                 .remove::<RootNonCameraView>();

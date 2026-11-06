@@ -17,7 +17,7 @@ struct ClusteredLight {
     clip_plane: vec4<f32>,
     // emm: a kept shadow's slot | class << 24 | KEPT_SHADOW_BIT, or 0 without one.
     kept: u32,
-    // emm: written 0 for now.
+    // emm: a point light's live shadow faces drawn this frame, bit i for Bevy's cube face i.
     live_faces: u32,
     // emm: the kept map's normal bias, scaled for its class's texel size.
     kept_normal_bias: f32,

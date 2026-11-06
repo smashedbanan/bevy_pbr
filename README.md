@@ -1,13 +1,14 @@
 # bevy_pbr for ExtractMeMaybe
 
 `bevy_pbr` 0.20.1 as published on crates.io (upstream bevyengine/bevy `a0577b5c`,
-`.cargo_vcs_info.json`), with five changes for
+`.cargo_vcs_info.json`), with six changes for
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
 light per fragment, the main pass draws correctly at a smaller size under
 `MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
 light at a plane, a point or spot light can cast from other layers than it lights, and a point or
 spot light can sample a shadow map kept across frames beside its live one, which a hidden bake
-light draws through Bevy's own shadow pass.
+light draws through Bevy's own shadow pass, and a point light can draw and sample only some faces
+of its live shadow map.
 
 Each change is marked `emm:` in the source.
 
@@ -55,7 +56,7 @@ cube array), as Bevy's own shadow textures do.
   to `ExtractedPointLight::kept_shadow` (`Changed<KeptShadow>` re-extracts the light), and
   `prepare_lights` writes `GpuClusteredLight::kept`, `slot | class << 24 | KEPT_SHADOW_BIT`
   (`1 << 31`), 0 without one, and `kept_normal_bias`, which stands in for the light's own normal
-  bias on the kept map. `live_faces` is written 0 and read by no shader yet. The light grows from
+  bias on the kept map. The light grows from
   96 to 112 bytes, so `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS` drops from 170 to 146.
 - `mesh_view_bindings`: bindings 40 to 43, `kept_point_shadows_0` to `_3`
   (`texture_depth_cube_array`), and 44 to 47, `kept_spot_shadows_0` to `_3`
@@ -97,6 +98,25 @@ cube array), as Bevy's own shadow textures do.
   drawing into the old ones until it changes.
 - For tests: `GpuClusteredLights::values` and `GpuClusteredLight::shadow_maps_enabled` read the
   light buffer `prepare_lights` last wrote.
+
+## The live shadow faces
+
+`LiveShadowFaces(u8)` on a shadowed `PointLight`: bit `i` for Bevy's cube face `i`
+(`CUBE_MAP_FACES`: looking along +X, −X, +Y, −Y, −Z and +Z). `extract_lights` copies it to
+`ExtractedPointLight::live_faces` (`Changed<LiveShadowFaces>` re-extracts the light), all six
+faces without one (a spot's are all six too), and `prepare_lights` writes it to
+`GpuClusteredLight::live_faces`, 0 for a rect light. A face whose bit is clear gets no
+`RootNonCameraView`, as a bake light's faces outside its mask, so Bevy draws it not at all and its
+layer keeps whatever was last drawn there.
+
+`render/shadows.wesl`: `fetch_point_shadow_in` takes the faces drawn (`fetch_point_shadow` the
+light's `live_faces`, `fetch_kept_point_shadow` all six, so the kept map is sampled whatever the
+mask) and returns 1, no shadow, for a fragment whose filter would read a face outside them: its
+own face, by the major axis of its biased position with the z flip the lookup uses, and each
+neighbouring face within `POINT_FILTER_REACH` (the Gaussian filter's farthest tap) plus half a
+texel of its edge, as the hardware's seamless filtering reads across. So a band a texel or two
+wide along an edge to an undrawn face takes no live shadow. PCSS's wider blur is not covered, nor
+is volumetric fog, which samples every face.
 
 ## The main pass at a smaller size
 

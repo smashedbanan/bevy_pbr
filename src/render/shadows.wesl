@@ -2,8 +2,8 @@ import package::render::{
     mesh_view_types::POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE,
     mesh_view_bindings as view_bindings,
     shadow_sampling::{
-        SPOT_SHADOW_TEXEL_SIZE, sample_shadow_cubemap_in, sample_shadow_cubemap_pcss,
-        sample_shadow_map, sample_shadow_map_in, sample_shadow_map_pcss,
+        POINT_SHADOW_SCALE, SPOT_SHADOW_TEXEL_SIZE, sample_shadow_cubemap_in,
+        sample_shadow_cubemap_pcss, sample_shadow_map, sample_shadow_map_in, sample_shadow_map_pcss,
     }
 };
 
@@ -13,6 +13,30 @@ import bevy_render::{
 };
 
 const flip_z: vec3<f32> = vec3<f32>(1.0, 1.0, -1.0);
+
+// emm: every face of a cube map: a kept map's mask, and a live map's without `LiveShadowFaces`.
+const ALL_CUBE_FACES: u32 = 0x3fu;
+
+// emm: how far Bevy's Gaussian point filter reads from the direction it filters, in a cube face's
+// [−1, 1] coordinates: its farthest tap, (0.875, −0.875), lies 1.2374 × `POINT_SHADOW_SCALE` ×
+// the major axis off it, which moves a face coordinate by up to √2 times that. The temporal
+// filter's taps reach half as far.
+const POINT_FILTER_REACH: f32 = 1.2374 * POINT_SHADOW_SCALE * 1.4142135;
+
+// emm: the faces a filter reads around cube direction `d` to within `reach` of its face's
+// coordinates, as bits in Bevy's face order (+X, −X, +Y, −Y, +Z, −Z): `d`'s own face, and each
+// face whose edge lies within `reach`.
+fn cube_faces_read(d: vec3<f32>, reach: f32) -> u32 {
+    let a = abs(d);
+    let near = a >= vec3(max(a.x, max(a.y, a.z)) * (1.0 - reach));
+    var faces = 0u;
+    for (var axis = 0u; axis < 3u; axis += 1u) {
+        if near[axis] {
+            faces |= 1u << (2u * axis + select(0u, 1u, d[axis] < 0.0));
+        }
+    }
+    return faces;
+}
 
 fn fetch_point_shadow(
     light_id: u32,
@@ -24,6 +48,7 @@ fn fetch_point_shadow(
         view_bindings::point_shadow_textures,
         light_id,
         view_bindings::clustered_lights.data[light_id].shadow_normal_bias,
+        view_bindings::clustered_lights.data[light_id].live_faces,
         light_id,
         frag_position,
         surface_normal,
@@ -53,29 +78,31 @@ fn fetch_kept_point_shadow(
     switch kept_class((*light).kept) {
         case 0u: {
             return fetch_point_shadow_in(view_bindings::kept_point_shadows_0, slot, bias,
-                light_id, frag_position, surface_normal, frag_coord_xy);
+                ALL_CUBE_FACES, light_id, frag_position, surface_normal, frag_coord_xy);
         }
         case 1u: {
             return fetch_point_shadow_in(view_bindings::kept_point_shadows_1, slot, bias,
-                light_id, frag_position, surface_normal, frag_coord_xy);
+                ALL_CUBE_FACES, light_id, frag_position, surface_normal, frag_coord_xy);
         }
         case 2u: {
             return fetch_point_shadow_in(view_bindings::kept_point_shadows_2, slot, bias,
-                light_id, frag_position, surface_normal, frag_coord_xy);
+                ALL_CUBE_FACES, light_id, frag_position, surface_normal, frag_coord_xy);
         }
         default: {
             return fetch_point_shadow_in(view_bindings::kept_point_shadows_3, slot, bias,
-                light_id, frag_position, surface_normal, frag_coord_xy);
+                ALL_CUBE_FACES, light_id, frag_position, surface_normal, frag_coord_xy);
         }
     }
 }
 
 // emm: `fetch_point_shadow` on cube `layer` of `textures`, with `normal_bias` in place of the
-// light's.
+// light's, taking no shadow where the filter would read a face outside `faces`, which was not
+// drawn this frame and holds an older frame's depth, or another light's.
 fn fetch_point_shadow_in(
     textures: texture_depth_cube_array,
     layer: u32,
     normal_bias: f32,
+    faces: u32,
     light_id: u32,
     frag_position: vec4<f32>,
     surface_normal: vec3<f32>,
@@ -100,6 +127,14 @@ fn fetch_point_shadow_in(
     let frag_ls = offset_position.xyz - (*light).position_radius.xyz ;
     let abs_position_ls = abs(frag_ls);
     let major_axis_magnitude = max(abs_position_ls.x, max(abs_position_ls.y, abs_position_ls.z));
+
+    // emm: hardware filtering reads up to half a texel across a face's edge, besides the taps.
+    if (faces != ALL_CUBE_FACES) {
+        let reach = POINT_FILTER_REACH + 1.0 / f32(textureDimensions(textures).x);
+        if ((cube_faces_read(frag_ls * flip_z, reach) & ~faces) != 0u) {
+            return 1.0;
+        }
+    }
 
     // NOTE: These simplifications come from multiplying:
     // projection * vec4(0, 0, -major_axis_magnitude, 1.0)
