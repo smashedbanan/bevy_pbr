@@ -13,6 +13,8 @@ struct ClusteredLight {
     shadow_map_near_z: f32,
     decal_index: u32,
     range: f32,
+    // emm: no point p with dot(clip_plane.xyz, p) + clip_plane.w < 0 is lit.
+    clip_plane: vec4<f32>,
 };
 
 const POINT_LIGHT_FLAGS_SHADOWS_ENABLED_BIT: u32                    = 1u << 0u;
@@ -126,7 +128,7 @@ struct ClusterOffsetsAndCounts {
 };
 @if(!AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3)
 struct ClusteredLights {
-    data: array<ClusteredLight, 204u>,
+    data: array<ClusteredLight, 170u>,
 };
 @if(!AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3)
 struct ClusterableObjectIndexLists {

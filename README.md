@@ -1,10 +1,11 @@
 # bevy_pbr for ExtractMeMaybe
 
 `bevy_pbr` 0.20.1 as published on crates.io (upstream bevyengine/bevy `a0577b5c`,
-`.cargo_vcs_info.json`), with two changes for
+`.cargo_vcs_info.json`), with three changes for
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
-light per fragment, and the main pass draws correctly at a smaller size under
-`MainPassResolutionOverride`, as an upscaler such as FSR needs.
+light per fragment, the main pass draws correctly at a smaller size under
+`MainPassResolutionOverride`, as an upscaler such as FSR needs, and an app can stop a point or spot
+light at a plane.
 
 Each change is marked `emm:` in the source.
 
@@ -17,6 +18,15 @@ Each change is marked `emm:` in the source.
   finishes registers its own shader at `embedded://bevy_pbr/render/ambient_hook.wesl` instead.
 - `mesh_view_bindings`: binding 39, `ambient_data: array<vec4<f32>>`, a read-only storage buffer
   from the render-world resource `AmbientDataBuffer` (one zero `vec4` until the app replaces it).
+
+## The light clip plane
+
+`LightClipPlane(Vec4)` on a `PointLight` or `SpotLight`: `pbr_lighting.wesl`'s `point_light`, which
+`spot_light` calls, gives no light to a point `p` with `dot(plane.xyz, p) + plane.w < 0`.
+`ExtractedPointLight` and `GpuClusteredLight` carry it as `clip_plane` (`ClusteredLight` in
+`mesh_view_types.wesl`), `Vec4::W` (nothing clipped) without one. The light grows from 80 to 96
+bytes, so `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS` drops from 204 to 170 to keep WebGL 2's
+uniform buffer within 16 KiB.
 
 ## The main pass at a smaller size
 

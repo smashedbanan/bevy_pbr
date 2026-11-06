@@ -647,7 +647,13 @@ fn point_light(
     let L = normalize(light_to_frag);
     let distance_square = dot(light_to_frag, light_to_frag);
     let distance = sqrt(distance_square);
-    let rangeAttenuation = getDistanceAttenuation(distance_square, (*light).color_inverse_square_range.w);
+    // emm: none of the light past its clip plane; a spot light's goes through here too.
+    let clipped = dot((*light).clip_plane.xyz, P) + (*light).clip_plane.w < 0.0;
+    let rangeAttenuation = select(
+        getDistanceAttenuation(distance_square, (*light).color_inverse_square_range.w),
+        0.0,
+        clipped,
+    );
 
     // Base layer
 

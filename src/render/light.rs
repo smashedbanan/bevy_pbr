@@ -76,6 +76,15 @@ use decal::clustered::RenderClusteredDecals;
 use tracing::info_span;
 use tracing::{error, warn};
 
+/// emm: a plane a point or spot light does not light past: no point `p` with
+/// `dot(self.0.xyz(), p) + self.0.w < 0`, as the surface a lamp lies on or faces stops its light
+/// where the light has no shadow map to. Without one, a light lights its whole range.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct LightClipPlane(pub Vec4);
+
+/// emm: what a light without a [`LightClipPlane`] gets: `0·p + 1`, never below 0.
+const NO_CLIP_PLANE: Vec4 = Vec4::W;
+
 #[derive(Component)]
 #[require(PointAndSpotLightViewEntities)]
 pub struct ExtractedPointLight {
@@ -95,6 +104,8 @@ pub struct ExtractedPointLight {
     pub soft_shadows_enabled: bool,
     /// whether this point light contributes diffuse light to lightmapped meshes
     pub affects_lightmapped_mesh_diffuse: bool,
+    /// emm: the light's [`LightClipPlane`], or one that clips nothing.
+    pub clip_plane: Vec4,
 }
 
 #[derive(Component, Debug)]
@@ -346,6 +357,8 @@ pub fn extract_lights(
                 &CubemapFrusta,
                 Option<&RenderLayers>,
                 Option<&VolumetricLight>,
+                // emm
+                Option<&LightClipPlane>,
             ),
             Or<(
                 Changed<PointLight>,
@@ -355,6 +368,8 @@ pub fn extract_lights(
                 Changed<RenderLayers>,
                 Changed<CubemapFrusta>,
                 Changed<VolumetricLight>,
+                // emm
+                Changed<LightClipPlane>,
             )>,
         >,
     >,
@@ -370,6 +385,8 @@ pub fn extract_lights(
                 &Frustum,
                 Option<&RenderLayers>,
                 Option<&VolumetricLight>,
+                // emm
+                Option<&LightClipPlane>,
             ),
             Or<(
                 Changed<SpotLight>,
@@ -379,6 +396,8 @@ pub fn extract_lights(
                 Changed<RenderLayers>,
                 Changed<Frustum>,
                 Changed<VolumetricLight>,
+                // emm
+                Changed<LightClipPlane>,
             )>,
         >,
     >,
@@ -477,6 +496,7 @@ pub fn extract_lights(
         frusta,
         maybe_render_layers,
         volumetric_light,
+        clip_plane,
     ) in point_lights.iter()
     {
         if !view_visibility.get() {
@@ -590,6 +610,7 @@ pub fn extract_lights(
             soft_shadows_enabled: point_light.soft_shadows_enabled,
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
+            clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
         };
         entity_commands.insert((
             extracted_point_light,
@@ -609,6 +630,7 @@ pub fn extract_lights(
         frustum,
         maybe_render_layers,
         volumetric_light,
+        clip_plane,
     ) in spot_lights.iter()
     {
         if !view_visibility.get() {
@@ -729,6 +751,7 @@ pub fn extract_lights(
             soft_shadows_enabled: spot_light.soft_shadows_enabled,
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
+            clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
         };
         entity_commands.insert((
             extracted_spot_light,
@@ -1395,6 +1418,7 @@ pub fn prepare_lights(
                 } else {
                     0.0
                 },
+                clip_plane: light.clip_plane,
             });
         global_clusterable_object_meta
             .entity_to_index
@@ -1426,6 +1450,7 @@ pub fn prepare_lights(
                     decal_index: u32::MAX,
                     range: light.range,
                     soft_shadow_size: 0.0,
+                    clip_plane: NO_CLIP_PLANE,
                 });
             global_clusterable_object_meta
                 .entity_to_index
