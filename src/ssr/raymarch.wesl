@@ -14,7 +14,8 @@
 //
 // at your option.
 
-import package::render::mesh_view_bindings::depth_prepass_texture;
+// emm: `view`, for the main pass's size.
+import package::render::mesh_view_bindings::{depth_prepass_texture, view};
 import package::render::view_transformations::{
     direction_world_to_clip,
     ndc_to_uv,
@@ -33,7 +34,10 @@ import package::render::view_transformations::{
 /// Manual depth fetch helpers used on WebGPU where depth + filtering sampler is invalid.
 @if(!USE_DEPTH_SAMPLERS)
 fn depth_texel_clamped(texel: vec2<i32>) -> f32 {
-    let dims = textureDimensions(depth_prepass_texture);
+    // emm: the main pass's size, which the depth fills the top-left corner of under a
+    // `MainPassResolutionOverride`: a tap past it reads the corner's last texel, as a tap past
+    // the texture reads the texture's last.
+    let dims = view.main_pass_viewport.zw;
     let max_coord = vec2<i32>(i32(dims.x) - 1, i32(dims.y) - 1);
     let clamped = clamp(texel, vec2<i32>(0), max_coord);
     return textureLoad(depth_prepass_texture, clamped, 0);
