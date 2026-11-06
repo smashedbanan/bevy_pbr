@@ -114,9 +114,10 @@ light's `live_faces`, `fetch_kept_point_shadow` all six, so the kept map is samp
 mask) and returns 1, no shadow, for a fragment whose filter would read a face outside them: its
 own face, by the major axis of its biased position with the z flip the lookup uses, and each
 neighbouring face within `POINT_FILTER_REACH` (the Gaussian filter's farthest tap) plus half a
-texel of its edge, as the hardware's seamless filtering reads across. So a band a texel or two
-wide along an edge to an undrawn face takes no live shadow. PCSS's wider blur is not covered, nor
-is volumetric fog, which samples every face.
+texel of its edge, as the hardware's seamless filtering reads across. So a band along an edge to
+an undrawn face takes no live shadow: a fixed angle plus half a texel wide, about 1.2 texels at
+256² and about 3 at 1024². PCSS's wider blur is not covered, nor is volumetric fog, which samples
+every face.
 
 ## The main pass at a smaller size
 

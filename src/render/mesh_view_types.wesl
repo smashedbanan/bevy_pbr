@@ -138,6 +138,7 @@ struct ClusterOffsetsAndCounts {
 };
 @if(!AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3)
 struct ClusteredLights {
+    // emm: 146, as `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS`.
     data: array<ClusteredLight, 146u>,
 };
 @if(!AVAILABLE_STORAGE_BUFFER_BINDINGS__GE_3)

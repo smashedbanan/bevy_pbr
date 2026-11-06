@@ -540,6 +540,7 @@ pub fn extract_lights(
         maybe_render_layers,
         volumetric_light,
         clip_plane,
+        // emm
         caster_layers,
         kept_shadow,
         kept_bake,
@@ -658,6 +659,7 @@ pub fn extract_lights(
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
+            // emm
             kept_shadow: kept_shadow.copied(),
             kept_bake: kept_bake.copied(),
             live_faces: live_faces.map_or(ALL_CUBE_FACES, |faces| faces.0),
@@ -686,6 +688,7 @@ pub fn extract_lights(
         maybe_render_layers,
         volumetric_light,
         clip_plane,
+        // emm
         caster_layers,
         kept_shadow,
         kept_bake,
@@ -810,6 +813,7 @@ pub fn extract_lights(
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
             clip_plane: clip_plane.map_or(NO_CLIP_PLANE, |plane| plane.0),
+            // emm
             kept_shadow: kept_shadow.copied(),
             kept_bake: kept_bake.copied(),
             live_faces: ALL_CUBE_FACES,
@@ -1503,6 +1507,7 @@ pub fn prepare_lights(
                     0.0
                 },
                 clip_plane: light.clip_plane,
+                // emm
                 kept: light.kept_shadow.map_or(0, |kept| {
                     kept.slot | u32::from(kept.class) << 24 | KEPT_SHADOW_BIT
                 }),
@@ -1541,6 +1546,7 @@ pub fn prepare_lights(
                     range: light.range,
                     soft_shadow_size: 0.0,
                     clip_plane: NO_CLIP_PLANE,
+                    // emm
                     kept: 0,
                     live_faces: 0,
                     kept_normal_bias: 0.0,
@@ -2393,6 +2399,7 @@ fn create_point_shadow_maps(
             },
             ExtractedView {
                 retained_view_entity,
+                // emm
                 viewport: UVec4::new(0, 0, shadow_map_size, shadow_map_size),
                 world_from_view: view_translation * *view_rotation,
                 clip_from_world: None,
@@ -2504,6 +2511,7 @@ fn create_spot_shadow_map(
         },
         ExtractedView {
             retained_view_entity,
+            // emm
             viewport: UVec4::new(0, 0, shadow_map_size, shadow_map_size),
             world_from_view: spot_world_from_view,
             clip_from_view: spot_projection,
@@ -2519,6 +2527,7 @@ fn create_spot_shadow_map(
         (*light_render_layers).clone(),
         RootNonCameraView(Core3d.intern()),
     ));
+    // emm
     if !drawn {
         commands
             .entity(view_light_entity)

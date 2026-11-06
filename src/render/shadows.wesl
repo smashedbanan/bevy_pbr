@@ -1,3 +1,5 @@
+// emm: imports the `_in` sampling variants, which take the texture they sample, and
+// `POINT_SHADOW_SCALE`.
 import package::render::{
     mesh_view_types::POINT_LIGHT_FLAGS_SPOT_LIGHT_Y_NEGATIVE,
     mesh_view_bindings as view_bindings,
@@ -24,8 +26,9 @@ const ALL_CUBE_FACES: u32 = 0x3fu;
 const POINT_FILTER_REACH: f32 = 1.2374 * POINT_SHADOW_SCALE * 1.4142135;
 
 // emm: the faces a filter reads around cube direction `d` to within `reach` of its face's
-// coordinates, as bits in Bevy's face order (+X, −X, +Y, −Y, +Z, −Z): `d`'s own face, and each
-// face whose edge lies within `reach`.
+// coordinates, as bits in Bevy's face order: `d`'s own face, and each face whose edge lies within
+// `reach`. `d` is in the `flip_z`'d frame the lookup samples in, where the faces look along +X, −X,
+// +Y, −Y, +Z and −Z; in the world, as `LiveShadowFaces` gives them, the last two are −Z and +Z.
 fn cube_faces_read(d: vec3<f32>, reach: f32) -> u32 {
     let a = abs(d);
     let near = a >= vec3(max(a.x, max(a.y, a.z)) * (1.0 - reach));
@@ -38,6 +41,8 @@ fn cube_faces_read(d: vec3<f32>, reach: f32) -> u32 {
     return faces;
 }
 
+// emm: Bevy's lookup, now `fetch_point_shadow_in` on the live cube array at the light's own layer,
+// with its normal bias and its live faces.
 fn fetch_point_shadow(
     light_id: u32,
     frag_position: vec4<f32>,
@@ -163,6 +168,8 @@ fn fetch_point_shadow_in(
     return sample_shadow_cubemap_in(textures, frag_ls * flip_z, distance_to_light, depth, layer, frag_coord_xy);
 }
 
+// emm: Bevy's lookup, now `fetch_spot_shadow_in` on the live 2D array at the light's own layer,
+// with its normal bias.
 fn fetch_spot_shadow(
     light_id: u32,
     frag_position: vec4<f32>,
@@ -355,6 +362,7 @@ fn sample_directional_cascade(
     // If soft shadows are enabled, use the PCSS path.
     if ((*light).soft_shadow_size > 0.0) {
         return sample_shadow_map_pcss(
+            // emm: the texture, which the sampling functions now take.
             view_bindings::directional_shadow_textures,
             light_local.xy,
             light_local.z,

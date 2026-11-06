@@ -56,12 +56,14 @@ use crate::{
     prepass,
     resources::{AtmosphereBuffer, AtmosphereSampler, AtmosphereTextures, GpuAtmosphere},
     Bluenoise, ExtractedAtmosphere, FogMeta, GlobalClusterableObjectMeta, GpuClusteredLights,
-    GpuFog, GpuLights, KeptShadowTextures, LightMeta, LightProbesBuffer, LightProbesUniform,
-    MeshPipeline, MeshPipelineKey, RenderViewLightProbes, ScreenSpaceAmbientOcclusionResources,
+    GpuFog, GpuLights, LightMeta, LightProbesBuffer, LightProbesUniform, MeshPipeline,
+    MeshPipelineKey, RenderViewLightProbes, ScreenSpaceAmbientOcclusionResources,
     ScreenSpaceReflectionsBuffer, ScreenSpaceReflectionsUniform, ShadowSamplers,
     ViewClusterBindings, ViewShadowBindings, ViewTransmissionTexture,
     CLUSTERED_FORWARD_STORAGE_BUFFER_COUNT,
 };
+// emm
+use crate::KeptShadowTextures;
 
 #[cfg(all(feature = "webgl", target_arch = "wasm32", not(feature = "webgpu")))]
 use bevy_render::render_resource::binding_types::texture_cube;
@@ -724,6 +726,7 @@ pub fn prepare_mesh_view_bind_groups(
         area_light_luts,
         dfg_lut,
         ambient_data,
+        // emm
         kept_shadows,
     ): (
         Res<DecalsBuffer>,
@@ -733,6 +736,7 @@ pub fn prepare_mesh_view_bind_groups(
         Res<AreaLightLuts>,
         Res<DfgLut>,
         Res<AmbientDataBuffer>,
+        // emm
         Res<KeptShadowTextures>,
     ),
     // TODO: Figure out how to reuse the memory. `BindGroupEntry` is non-send on wasm with atomics.
