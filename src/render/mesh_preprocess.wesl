@@ -309,6 +309,17 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     @else   // EARLY_PHASE
     max_depth_view = min(-view.clip_from_view[3][2], max_depth_view);
 
+    // emm: under a `MainPassResolutionOverride` the depth pyramid is window-size and the main
+    // pass draws in its top-left corner, so the bounds, in the main pass's UV, are scaled into
+    // that corner. Both phases use this frame's sizes, as `PreviousViewData` holds none: after a
+    // size change the early phase may cull wrongly for one frame, and the late phase retests
+    // every mesh it culled against this frame's pyramid. An axis the override leaves equal
+    // selects exactly 1, as a GPU's division may round x / x below it.
+    let main_pass = view.main_pass_viewport.zw;
+    let window = view.viewport.zw;
+    let main_pass_scale = select(main_pass / window, vec2(1.0), main_pass == window);
+    aabb *= vec4(main_pass_scale, main_pass_scale);
+
     // Figure out the depth of the occluder, and compare it to our own depth.
 
     let aabb_pixel_size = occlusion_culling::get_aabb_size_in_pixels(aabb, depth_pyramid);
