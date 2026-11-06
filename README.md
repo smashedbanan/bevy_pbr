@@ -23,8 +23,12 @@ Each change is marked `emm:` in the source.
 Under `MainPassResolutionOverride` the main pass draws in the top-left corner of window-size
 textures, `view.main_pass_viewport`, while `view.viewport` stays the window's. Stock 0.20.1 maps
 some screen positions through the window's size, so at a smaller main pass they land outside the
-picture. Each change below reads `main_pass_viewport` instead, or scales by
-`main_pass_viewport.zw / viewport.zw`:
+picture. The shader changes below read `main_pass_viewport` instead, or scale by a ratio of the
+two sizes: the occlusion test by `main_pass_viewport.zw / viewport.zw`, the cluster lookup by its
+inverse. A read that addresses a window-size texture in absolute texels, or adds `viewport.xy` and
+divides by the window-size texture, stays on `viewport`, as changing it would scale twice. The two
+Rust changes, in `transmission/node.rs` and `ssao/mod.rs`, set the transmissive pass's viewport
+and size SSAO's textures and dispatch:
 
 - `transmission/node.rs`: the transmissive pass's `steps > 0` branch sets
   `Viewport::from_viewport_and_override`, as its `steps == 0` branch already did, so transmissive
@@ -58,18 +62,29 @@ division may round x / x below 1.
 Without an override `main_pass_viewport` equals `viewport`, and every change draws what stock
 draws for a camera whose viewport covers its target. For a camera with a sub-viewport and no
 override, three reads now follow the viewport where stock followed the whole target: contact
-shadows' march size, their texel clamp, and the transmission colour read's clamp.
+shadows' march size, their texel clamp (which screen-space reflections reach too, on wasm), and
+the transmission colour read's clamp.
 
 ### Affected but not made correct under the override
 
-These inherit a changed shared function without a fix of their own:
+These call a changed shared function without a fix of their own:
 
-- Screen-space reflections: their cluster lookup scales. On native targets their march uses depth
-  samplers and never reaches `depth_texel_clamped`; on wasm it does, while the rest of their march
-  stays sized to the depth texture.
-- Volumetric fog and clustered decals: their cluster lookup scales.
+- Screen-space reflections (`ssr.wesl`): `frag_coord_to_ndc` and the cluster lookup. Their march
+  is sized to the depth texture on every target (`depth_size`, from `textureDimensions`). On native
+  targets it reads depth through samplers and never reaches `depth_texel_clamped`; on wasm it
+  does, and so clamps to the main pass's last texel.
+- Volumetric fog (`volumetric_fog/volumetric_fog.wesl`): `frag_coord_to_ndc` and the cluster
+  lookup.
+- Deferred lighting: `deferred/functions.wesl`'s `pbr_input_from_deferred_gbuffer` calls
+  `frag_coord_to_ndc`, and `deferred/deferred_lighting.wesl` calls `apply_pbr_lighting`, with its
+  cluster lookup and contact shadows.
+- Meshlets: `meshlet/visibility_buffer_resolve.wesl`'s `resolve_vertex_output` calls
+  `frag_coord_to_ndc`.
+- Clustered decals (`decal/clustered.wesl`): the cluster lookup.
 
 ### Untouched
 
-Deferred lighting, order-independent transparency, meshlets, and the rough transmission blur
-(`fetch_transmissive_background`).
+These call nothing the fork changed: order-independent transparency, whose draw and resolve (in
+`bevy_core_pipeline`) address their window-size buffers through `viewport.z`, and the rough
+transmission blur (`fetch_transmissive_background`), which reads the UV
+`specular_transmissive_light` now maps into the corner, unclamped.
