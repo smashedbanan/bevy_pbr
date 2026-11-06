@@ -25,6 +25,14 @@ pub struct KeptShadowLayout {
     pub spot_slots: [u32; 4],
 }
 
+impl KeptShadowLayout {
+    /// emm: whether `class` and `slot` name one of this layout's point slots, or its spot slots.
+    pub fn holds(&self, point: bool, class: u8, slot: u32) -> bool {
+        let slots = if point { self.point_slots } else { self.spot_slots };
+        slots.get(usize::from(class)).is_some_and(|&slots| slot < slots)
+    }
+}
+
 /// emm: on a point or spot light: it is lit only where both its live shadow, if it has one, and
 /// the kept map at `slot` of size class `class` (`KeptShadowLayout`) let it through. `normal_bias`
 /// stands in for the light's own on the kept map, already scaled for the class's texel size.
@@ -51,12 +59,12 @@ pub struct KeptShadowBake {
 /// to 30 and its slot below; `KEPT_SHADOW_BIT` in `mesh_view_types.wesl`.
 pub(crate) const KEPT_SHADOW_BIT: u32 = 1 << 31;
 
-/// emm: the render world's kept shadow textures for `KeptShadowLayout::generation`, per size class
-/// a cube array for points and a 2D array for spots, each `default_view` the view the mesh view
-/// binds (40 to 43 and 44 to 47).
+/// emm: the render world's kept shadow textures for `layout`, per size class a cube array for
+/// points and a 2D array for spots, each `default_view` the view the mesh view binds (40 to 43 and
+/// 44 to 47).
 #[derive(Resource)]
 pub struct KeptShadowTextures {
-    pub generation: u32,
+    pub layout: KeptShadowLayout,
     pub point: [CachedTexture; 4],
     pub spot: [CachedTexture; 4],
 }
@@ -81,24 +89,25 @@ impl Plugin for KeptShadowPlugin {
     }
 }
 
-/// Allocates the kept textures anew when the layout's generation changes, and on the first frame.
-/// A class with no slots gets a one-slot dummy, as Bevy's own shadow textures do.
+/// Allocates the kept textures anew when the layout changes, and on the first frame. A class with
+/// no slots gets a one-slot 1×1 dummy, as Bevy's own shadow textures do.
 fn prepare_kept_shadow_textures(
     mut commands: Commands,
     layout: Res<KeptShadowLayout>,
     textures: Option<Res<KeptShadowTextures>>,
     render_device: Res<RenderDevice>,
 ) {
-    if textures.is_some_and(|textures| textures.generation == layout.generation) {
+    if textures.is_some_and(|textures| textures.layout == *layout) {
         return;
     }
-    let texture = |size: u32, layers: u32, dimension, label: &str| {
+    let texture = |size: u32, slots: u32, faces: u32, dimension, label: &str| {
+        let size = if slots == 0 { 1 } else { size.max(1) };
         let texture = render_device.create_texture(&TextureDescriptor {
             label: Some(label),
             size: Extent3d {
-                width: size.max(1),
-                height: size.max(1),
-                depth_or_array_layers: layers,
+                width: size,
+                height: size,
+                depth_or_array_layers: slots.max(1) * faces,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -119,11 +128,12 @@ fn prepare_kept_shadow_textures(
         }
     };
     commands.insert_resource(KeptShadowTextures {
-        generation: layout.generation,
+        layout: layout.clone(),
         point: core::array::from_fn(|class| {
             texture(
                 layout.sizes[class],
-                layout.point_slots[class].max(1) * 6,
+                layout.point_slots[class],
+                6,
                 TextureViewDimension::CubeArray,
                 &format!("kept_point_shadows_{class}"),
             )
@@ -131,7 +141,8 @@ fn prepare_kept_shadow_textures(
         spot: core::array::from_fn(|class| {
             texture(
                 layout.sizes[class],
-                layout.spot_slots[class].max(1),
+                layout.spot_slots[class],
+                1,
                 TextureViewDimension::D2Array,
                 &format!("kept_spot_shadows_{class}"),
             )

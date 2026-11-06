@@ -1508,9 +1508,15 @@ pub fn prepare_lights(
                 },
                 clip_plane: light.clip_plane,
                 // emm
-                kept: light.kept_shadow.map_or(0, |kept| {
-                    kept.slot | u32::from(kept.class) << 24 | KEPT_SHADOW_BIT
-                }),
+                // A slot outside the layout would read another light's map, or none.
+                kept: (light.kept_shadow)
+                    .filter(|kept| {
+                        let point = light.spot_light_angles.is_none();
+                        kept_textures.layout.holds(point, kept.class, kept.slot)
+                    })
+                    .map_or(0, |kept| {
+                        kept.slot | u32::from(kept.class) << 24 | KEPT_SHADOW_BIT
+                    }),
                 live_faces: light.live_faces.into(),
                 kept_normal_bias: light.kept_shadow.map_or(0.0, |kept| kept.normal_bias),
                 _padding: 0,
@@ -1724,7 +1730,11 @@ pub fn prepare_lights(
         if index >= max_texture_cubes && light.kept_bake.is_none() {
             continue;
         }
-        let kept = light.kept_bake.map(|bake| {
+        // A bake outside the layout draws nothing.
+        let bake_held = (light.kept_bake).is_none_or(|bake| {
+            (kept_textures.layout).holds(true, bake.class, bake.slot)
+        });
+        let kept = light.kept_bake.filter(|_| bake_held).map(|bake| {
             let class = bake.class as usize;
             (
                 bake,
@@ -1733,7 +1743,7 @@ pub fn prepare_lights(
             )
         });
 
-        if !light.shadow_maps_enabled {
+        if !light.shadow_maps_enabled || !bake_held {
             despawn_entities(
                 &mut commands,
                 mem::take(&mut point_and_spot_light_view_entities.0),
@@ -1811,7 +1821,11 @@ pub fn prepare_lights(
         ) = point_lights.get_mut(*light_entity).unwrap();
 
         // emm
-        let kept = light.kept_bake.map(|bake| {
+        // A bake outside the layout draws nothing.
+        let bake_held = (light.kept_bake).is_none_or(|bake| {
+            (kept_textures.layout).holds(false, bake.class, bake.slot)
+        });
+        let kept = light.kept_bake.filter(|_| bake_held).map(|bake| {
             let class = bake.class as usize;
             (
                 bake,
@@ -1820,7 +1834,7 @@ pub fn prepare_lights(
             )
         });
 
-        if !light.shadow_maps_enabled {
+        if !light.shadow_maps_enabled || !bake_held {
             despawn_entities(
                 &mut commands,
                 mem::take(&mut point_and_spot_light_view_entities.0),

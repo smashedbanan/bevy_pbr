@@ -48,16 +48,17 @@ each `sizes[class]` texels square with `point_slots[class]` cube maps and `spot_
 maps. `KeptShadowPlugin` (added by `PbrPlugin`) extracts it, and the render-world resource
 `KeptShadowTextures` holds per class a cube array and a 2D array (`CORE_3D_SHADOW_MAP_FORMAT`,
 `RENDER_ATTACHMENT | TEXTURE_BINDING`), allocated outside `TextureCache` and anew only when the
-layout's `generation` changes, so their contents last across frames. A new generation's textures
-start zero, which is far: unshadowed. A class with no slots gets a one-slot dummy (six layers for a
-cube array), as Bevy's own shadow textures do.
+layout changes, so their contents last across frames. A new layout's textures start zero, which is
+far: unshadowed. A class with no slots gets a one-slot 1×1 dummy (six layers for a cube array), as
+Bevy's own shadow textures do. `KeptShadowLayout::holds` says whether a class and slot are in the
+layout.
 
-- `KeptShadow { class, slot, normal_bias }` on a point or spot light: `extract_lights` copies it
-  to `ExtractedPointLight::kept_shadow` (`Changed<KeptShadow>` re-extracts the light), and
+- `KeptShadow { class, slot, normal_bias }` on a point or spot light: `extract_lights` copies it to
+  `ExtractedPointLight::kept_shadow` (`Changed<KeptShadow>` re-extracts the light), and
   `prepare_lights` writes `GpuClusteredLight::kept`, `slot | class << 24 | KEPT_SHADOW_BIT`
-  (`1 << 31`), 0 without one, and `kept_normal_bias`, which stands in for the light's own normal
-  bias on the kept map. The light grows from
-  96 to 112 bytes, so `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS` drops from 170 to 146.
+  (`1 << 31`), 0 without one or with one outside the layout, and `kept_normal_bias`, which stands
+  in for the light's own normal bias on the kept map. The light grows from 96 to 112 bytes, so
+  `MAX_UNIFORM_BUFFER_CLUSTERABLE_OBJECTS` drops from 170 to 146.
 - `mesh_view_bindings`: bindings 40 to 43, `kept_point_shadows_0` to `_3`
   (`texture_depth_cube_array`), and 44 to 47, `kept_spot_shadows_0` to `_3`
   (`texture_depth_2d_array`), by class, sampled with the comparison samplers Bevy's own shadow
@@ -87,15 +88,15 @@ cube array), as Bevy's own shadow textures do.
   `point_light_shadow_maps_count` and `spot_light_shadow_maps_count`. So they take no layer in the
   live arrays and no `SHADOW_MAPS_ENABLED`, and the live lights keep their layers, while the point
   and spot view loops still reach them; `max_texture_cubes` does not limit them. The spot layer
-  offset keeps every point light, bake lights included, as the shader indexes the whole sorted
-  list. A bake light's views keep Bevy's visible entities and phases, but each takes its
-  `ShadowView` attachment from its class's kept texture at layer `slot * 6 + face` (a spot's:
-  `slot`), cleared on first use, from attachment maps of their own by class and layer, and its
-  viewport at the class's size; a face whose bit in `faces` is clear has no `RootNonCameraView`, so
-  Bevy draws it not at all. The views are rebuilt only when the light changes, as Bevy's are.
-  `KeptShadowTextures` is prepared in `CreateViews` before `prepare_lights`, so a bake light that
-  arrives with a new layout draws into the new textures; one alive across a new generation keeps
-  drawing into the old ones until it changes.
+  offset keeps every point light, bake lights included, as the shader indexes the whole sorted list.
+  A bake light's views keep Bevy's visible entities and phases, but each takes its `ShadowView`
+  attachment from its class's kept texture at layer `slot * 6 + face` (a spot's: `slot`), cleared on
+  first use, from attachment maps of their own by class and layer, and its viewport at the class's
+  size; a face whose bit in `faces` is clear has no `RootNonCameraView`, so Bevy draws it not at
+  all. A bake light whose class or slot is outside the layout has no views. The views are rebuilt
+  only when the light changes, as Bevy's are. `KeptShadowTextures` is prepared in `CreateViews`
+  before `prepare_lights`, so a bake light that arrives with a new layout draws into the new
+  textures; one alive across a new layout keeps drawing into the old ones until it changes.
 - For tests: `GpuClusteredLights::values` and `GpuClusteredLight::shadow_maps_enabled` read the
   light buffer `prepare_lights` last wrote.
 
