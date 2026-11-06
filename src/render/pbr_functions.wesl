@@ -306,7 +306,9 @@ fn calculate_contact_shadow(
     @else
     let noise = utils::interleaved_gradient_noise(frag_coord, view_bindings::globals.frame_count);
 
-    let depth_size = vec2<f32>(textureDimensions(view_bindings::depth_prepass_texture));
+    // emm: the main pass's size, which the depth fills the top-left corner of under a
+    // `MainPassResolutionOverride`: the march's uv maps to it.
+    let depth_size = view_bindings::view.main_pass_viewport.zw;
     var rm = raymarch::depth_ray_march_new_from_depth(depth_size);
     raymarch::depth_ray_march_from_cs(&rm, position_world_to_ndc(world_position));
     raymarch::depth_ray_march_to_ws(&rm, world_position + light_dir * view_bindings::contact_shadows_settings.length);
