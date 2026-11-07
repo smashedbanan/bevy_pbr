@@ -10,7 +10,8 @@ spot light can sample a shadow map kept across frames beside its live one, which
 light draws through Bevy's own shadow pass, and a point light can draw and sample only some faces
 of its live shadow map.
 
-Each change is marked `emm:` in the source.
+Each change is marked `emm:` in the source. Four fixes from upstream `main` sit on top, as
+upstream wrote them and unmarked: [Backports from upstream main](#backports-from-upstream-main).
 
 ## The ambient hook
 
@@ -197,3 +198,27 @@ These call a changed shared function without a fix of their own:
 
 These call nothing the fork changed: order-independent transparency, whose draw and resolve (in
 `bevy_core_pipeline`) address their window-size buffers through `viewport.z`.
+
+## Backports from upstream main
+
+Commits from bevyengine/bevy `main` after the 0.20 branch, each applied whole to this crate with
+`git format-patch --relative=crates/bevy_pbr` and `git am`, its upstream author kept. None needed
+a change to apply or build on 0.20.1.
+
+- bevyengine/bevy#25869 (`59a4d89f`): `prepare_clusters_for_gpu_clustering` updates a view's
+  `ViewGpuClusteringBuffers` and `ViewClusterBindings` in place, where 0.20.1 built both anew, and
+  with them new GPU buffers, for every view every frame. A buffer is now made only when it has to
+  grow. `ViewClusterBindings::clear` also resets its index and offset counts. In ExtractMeMaybe the
+  system went from 0.1-0.27 ms to 0.05-0.08 ms a frame, and Factory's frames got 1-3% faster;
+  [ExtractMeMaybe#947](https://github.com/smashedbanan/ExtractMeMaybe/issues/947) has the
+  measurements.
+- bevyengine/bevy#26246 (`31910415`): `PreprocessPipelines::pipelines_are_loaded` also waits for
+  the bin unpacking and uniform allocation pipelines. While those were still compiling, mesh
+  preprocessing read stale work items, and for a frame or two after start-up some meshes drew
+  with other meshes' bindless materials.
+- bevyengine/bevy#25808 (`0c6db501`): the transmission sampler is one render-world resource,
+  `TransmissionSampler`, where 0.20.1 made a new sampler per view every frame.
+- bevyengine/bevy#25815 (`ec535d74`, without its `bevy_sprite_render` half): material, prepass,
+  shadow and wireframe specialisation queue a mesh whose `RenderMesh` is not ready yet for the next
+  frame, where 0.20.1 skipped it, and it stayed undrawn until something else marked it again.
+  smashedbanan/bevy_render carries the related bevyengine/bevy#25816.
