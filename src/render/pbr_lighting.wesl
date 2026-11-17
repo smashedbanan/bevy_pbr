@@ -317,9 +317,9 @@ fn F_Schlick(f0: f32, f90: f32, VdotH: f32) -> f32 {
 }
 
 fn fresnel(f0: vec3<f32>, LdotH: f32) -> vec3<f32> {
-    // f_90 suitable for ambient occlusion
-    // see https://google.github.io/filament/Filament.md.html#lighting/occlusion
-    let f90 = saturate(dot(f0, vec3<f32>(50.0 * 0.33)));
+    // emm: Schlick to 1 at grazing for any F0 above 0, as Unity's BRDF1 lights, where Filament's
+    // saturate(16.5 × ΣF0) dims a direct highlight with F0 under 0.02.
+    let f90 = select(0.0, 1.0, any(f0 > vec3(0.0)));
     return F_Schlick_vec(f0, f90, LdotH);
 }
 

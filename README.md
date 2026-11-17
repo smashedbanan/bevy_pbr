@@ -1,14 +1,14 @@
 # bevy_pbr for ExtractMeMaybe
 
 `bevy_pbr` 0.20.1 as published on crates.io (upstream bevyengine/bevy `a0577b5c`,
-`.cargo_vcs_info.json`), with six changes for
+`.cargo_vcs_info.json`), with seven changes for
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
 light per fragment, the main pass draws correctly at a smaller size under
 `MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
 light at a plane, a point or spot light can cast from other layers than it lights, and a point or
 spot light can sample a shadow map kept across frames beside its live one, which a hidden bake
-light draws through Bevy's own shadow pass, and a point light can draw and sample only some faces
-of its live shadow map.
+light draws through Bevy's own shadow pass, a point light can draw and sample only some faces
+of its live shadow map, and a direct light's Fresnel reaches 1 at grazing for any F0 above 0.
 
 Each change is marked `emm:` in the source. Four fixes from upstream `main` sit on top, as
 upstream wrote them and unmarked: [Backports from upstream main](#backports-from-upstream-main).
@@ -122,6 +122,18 @@ texel of its edge, as the hardware's seamless filtering reads across. So a band 
 an undrawn face takes no live shadow: a fixed angle plus half a texel wide, about 1.2 texels at
 256² and about 3 at 1024². PCSS's wider blur is not covered, nor is volumetric fog, which samples
 every face.
+
+## The grazing Fresnel
+
+`render/pbr_lighting.wesl`'s `fresnel()`, the Fresnel of every direct light's specular
+(`specular()`, `specular_anisotropy()`), takes f90 = 1 where any channel of F0 is above 0, and 0
+where none is, as Unity's BRDF1 lights do. Stock takes Filament's f90 = saturate(16.5 × ΣF0),
+which treats an F0 under 0.02 a channel as pre-baked specular occlusion and dims its grazing
+highlight: at F0 0.004 to 0.198 of full. ExtractMeMaybe's materials carry many such F0s
+([ExtractMeMaybe#188](https://github.com/smashedbanan/ExtractMeMaybe/issues/188)). The same
+factor's other uses are kept: the environment map's and the ambient light's specular occlusion
+(`light_probe/environment_map.wesl`, `render/pbr_ambient.wesl`). An F0 of 0 still draws no
+direct highlight.
 
 ## The main pass at a smaller size
 
