@@ -5,12 +5,12 @@
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
 light per fragment, the main pass draws correctly at a smaller size under
 `MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
-light at a plane, a point or spot light can cast from other layers than it lights, and a point or
+light at a plane, a point or spot light can cast from other layers than it lights, a point or
 spot light can sample a shadow map kept across frames beside its live one, which a hidden bake
 light draws through Bevy's own shadow pass, a point light can draw and sample only some faces
 of its live shadow map, and a direct light's Fresnel reaches 1 at grazing for any F0 above 0.
 
-Each change is marked `emm:` in the source. Four fixes from upstream `main` sit on top, as
+Each change is marked `emm:` in the source. Four fixes from upstream `main` are in too, as
 upstream wrote them and unmarked: [Backports from upstream main](#backports-from-upstream-main).
 
 ## The ambient hook
@@ -125,15 +125,19 @@ every face.
 
 ## The grazing Fresnel
 
-`render/pbr_lighting.wesl`'s `fresnel()`, the Fresnel of every direct light's specular
-(`specular()`, `specular_anisotropy()`), takes f90 = 1 where any channel of F0 is above 0, and 0
-where none is, as Unity's BRDF1 lights do. Stock takes Filament's f90 = saturate(16.5 × ΣF0),
-which treats an F0 under 0.02 a channel as pre-baked specular occlusion and dims its grazing
-highlight: at F0 0.004 to 0.198 of full. ExtractMeMaybe's materials carry many such F0s
+`render/pbr_lighting.wesl`'s `fresnel()` takes f90 = 1 where any channel of F0 is above 0, and 0
+where none is, as Unity's BRDF1 lights do. It is the Fresnel of every direct light's specular
+(`specular()`, `specular_anisotropy()`) and, as 1 − `fresnel()`, the share
+`transmission.wesl`'s `specular_transmissive_light` lets through; ExtractMeMaybe's water calls it
+too. Stock takes Filament's f90 = saturate(16.5 × ΣF0), which treats an F0 under 0.02 a channel as
+pre-baked specular occlusion and dims its grazing highlight: at F0 0.004 to 0.198 of full.
+ExtractMeMaybe's materials carry many such F0s
 ([ExtractMeMaybe#188](https://github.com/smashedbanan/ExtractMeMaybe/issues/188)). The same
 factor's other uses are kept: the environment map's and the ambient light's specular occlusion
 (`light_probe/environment_map.wesl`, `render/pbr_ambient.wesl`). An F0 of 0 still draws no
-direct highlight.
+direct highlight. Unity's deferred lights read the specular colour from an 8-bit G-buffer, so one
+under half a step (0.5/255 in gamma) draws no highlight there, where here any F0 above 0 takes the
+whole grazing rise.
 
 ## The main pass at a smaller size
 
