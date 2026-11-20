@@ -6,6 +6,7 @@ struct StandardMaterial {
     attenuation_color: vec4<f32>,
     uv_transform: mat3x3<f32>,
     reflectance: vec3<f32>,
+    environment_reflectance: vec3<f32>,
     perceptual_roughness: f32,
     metallic: f32,
     diffuse_transmission: f32,
@@ -53,6 +54,8 @@ const STANDARD_MATERIAL_FLAGS_ANISOTROPY_TEXTURE_BIT: u32            = 1u << 17u
 const STANDARD_MATERIAL_FLAGS_SPECULAR_TEXTURE_BIT: u32              = 1u << 18u;
 const STANDARD_MATERIAL_FLAGS_SPECULAR_TINT_TEXTURE_BIT: u32         = 1u << 19u;
 const STANDARD_MATERIAL_FLAGS_METALLIC_ROUGHNESS_RG_BIT: u32         = 1u << 20u;
+// emm: the deferred flags leave this one out on purpose: a deferred material takes its own F0.
+const STANDARD_MATERIAL_FLAGS_ENVIRONMENT_REFLECTANCE_BIT: u32       = 1u << 21u;
 const STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS: u32          = 7u << 29u; // (0b111u << 29u)
 const STANDARD_MATERIAL_FLAGS_ALPHA_MODE_OPAQUE: u32                 = 0u << 29u;
 const STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK: u32                   = 1u << 29u;
@@ -73,6 +76,7 @@ fn standard_material_new() -> StandardMaterial {
     material.perceptual_roughness = 0.5;
     material.metallic = 0.00;
     material.reflectance = vec3<f32>(0.5);
+    material.environment_reflectance = vec3<f32>(0.5);
     material.diffuse_transmission = 0.0;
     material.specular_transmission = 0.0;
     material.thickness = 0.0;

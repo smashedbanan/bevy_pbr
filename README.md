@@ -1,14 +1,15 @@
 # bevy_pbr for ExtractMeMaybe
 
 `bevy_pbr` 0.20.1 as published on crates.io (upstream bevyengine/bevy `a0577b5c`,
-`.cargo_vcs_info.json`), with seven changes for
+`.cargo_vcs_info.json`), with eight changes for
 [ExtractMeMaybe](https://github.com/smashedbanan/ExtractMeMaybe): an app can supply the ambient
 light per fragment, the main pass draws correctly at a smaller size under
 `MainPassResolutionOverride`, as an upscaler such as FSR needs, an app can stop a point or spot
 light at a plane, a point or spot light can cast from other layers than it lights, a point or
 spot light can sample a shadow map kept across frames beside its live one, which a hidden bake
 light draws through Bevy's own shadow pass, a point light can draw and sample only some faces
-of its live shadow map, and a direct light's Fresnel reaches 1 at grazing for any F0 above 0.
+of its live shadow map, a direct light's Fresnel reaches 1 at grazing for any F0 above 0, and a
+material can give the environment map and the ambient light's specular their own reflectance.
 
 Each change is marked `emm:` in the source. Four fixes from upstream `main` are in too, as
 upstream wrote them and unmarked: [Backports from upstream main](#backports-from-upstream-main).
@@ -138,6 +139,28 @@ factor's other uses are kept: the environment map's and the ambient light's spec
 direct highlight. Unity's deferred lights read the specular colour from an 8-bit G-buffer, so one
 under half a step (0.5/255 in gamma) draws no highlight there, where here any F0 above 0 takes the
 whole grazing rise.
+
+## The environment reflectance
+
+`StandardMaterial::environment_reflectance: Option<Vec3>`, `None` by default: per channel what
+`LinearRgba::from(specular_tint).to_vec3() * reflectance` is for the direct lights, read by the
+environment map's and the ambient light's specular in place of it. With it set,
+`StandardMaterialFlags::ENVIRONMENT_REFLECTANCE` (bit 21,
+`STANDARD_MATERIAL_FLAGS_ENVIRONMENT_REFLECTANCE_BIT` in `render/pbr_types.wesl`) is on, and
+`StandardMaterialUniform::environment_reflectance` holds it, or the uniform's own `reflectance`
+without it; the WESL `StandardMaterial` keeps the same field order.
+
+`render/pbr_fragment.wesl` multiplies it by the specular texture's `specular * 0.5` and by the
+specular tint texture, where it does `reflectance`. `apply_pbr_lighting` in
+`render/pbr_functions.wesl` copies `lighting_input` with the F0 it gives, so the copy keeps the
+clearcoat layer and the anisotropy: the environment map reads that copy (`environment_input`, bent
+for anisotropy as before), and the ambient's specular takes the F0 from it
+(`environment_F0`). The direct lights keep `reflectance`.
+
+Deferred rendering and screen-space reflections keep the material's own F0: the deferred flags
+leave the bit out, and `ssr.wesl` reads `reflectance`. The clearcoat layer and the transmitted
+light (the ambient at F0 0, the environment light at F0 1) are as they were. A shader that writes
+its own `reflectance` into a `PbrInput` is untouched unless its material sets the field.
 
 ## The main pass at a smaller size
 

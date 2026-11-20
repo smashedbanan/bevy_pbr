@@ -415,6 +415,15 @@ fn apply_pbr_lighting(
     lighting_input.Ba = in.anisotropy_B;
 }
 
+// emm: the environment map and the ambient's specular take the material's environment
+// reflectance where it has one; the direct lights keep `reflectance`.
+let has_environment = (in.material.flags
+    & pbr_types::STANDARD_MATERIAL_FLAGS_ENVIRONMENT_REFLECTANCE_BIT) != 0u;
+let environment_reflectance = select(reflectance, in.material.environment_reflectance, has_environment);
+var environment_input = lighting_input;
+environment_input.F0_dielectric = calculate_F0_dielectric(environment_reflectance);
+let environment_F0 = calculate_F0(output_color.rgb, metallic, environment_reflectance);
+
     // And do the same for transmissive if we need to.
     @if(STANDARD_MATERIAL_DIFFUSE_TRANSMISSION)
     var transmissive_lighting_input: lighting::LightingInput;
@@ -758,13 +767,13 @@ fn apply_pbr_lighting(
     let use_ssr = false;
 
     @if(STANDARD_MATERIAL_ANISOTROPY)
-    var bent_normal_lighting_input = lighting_input;
+    var bent_normal_lighting_input = environment_input;
     @if(STANDARD_MATERIAL_ANISOTROPY)
     bend_normal_for_anisotropy(&bent_normal_lighting_input);
     @if(STANDARD_MATERIAL_ANISOTROPY)
     let environment_map_lighting_input = &bent_normal_lighting_input;
     @else   // STANDARD_MATERIAL_ANISOTROPY
-    let environment_map_lighting_input = &lighting_input;
+    let environment_map_lighting_input = &environment_input;
 
     let environment_light = environment_map::environment_map_light(
         environment_map_lighting_input,
@@ -786,7 +795,7 @@ fn apply_pbr_lighting(
     @else   // LIGHTMAP
     let enable_ambient = true;
     if (enable_ambient) {
-        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, F0, perceptual_roughness, diffuse_occlusion);
+        indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, environment_F0, perceptual_roughness, diffuse_occlusion);
     }
 
     // we'll use the specular component of the transmitted environment
