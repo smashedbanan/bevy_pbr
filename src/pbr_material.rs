@@ -199,7 +199,7 @@ pub struct StandardMaterial {
     #[doc(alias = "specular_color")]
     pub specular_tint: Color,
 
-    /// What the environment map and the ambient light's specular reflect at, in place of the
+    /// emm: what the environment map and the ambient light's specular reflect at, in place of the
     /// direct lights' [`StandardMaterial::reflectance`] and [`StandardMaterial::specular_tint`].
     ///
     /// Per channel, what `LinearRgba::from(specular_tint).to_vec3() * reflectance` is for the
@@ -917,6 +917,7 @@ impl Default for StandardMaterial {
             #[cfg(feature = "pbr_specular_textures")]
             specular_texture: None,
             specular_tint: Color::WHITE,
+            // emm
             environment_reflectance: None,
             #[cfg(feature = "pbr_specular_textures")]
             specular_tint_channel: UvChannel::Uv0,
@@ -1018,7 +1019,7 @@ bitflags::bitflags! {
         const SPECULAR_TEXTURE           = 1 << 18;
         const SPECULAR_TINT_TEXTURE      = 1 << 19;
         const METALLIC_ROUGHNESS_RG      = 1 << 20; // Roughness in red, metallic in green
-        const ENVIRONMENT_REFLECTANCE    = 1 << 21; // `environment_reflectance` is set
+        const ENVIRONMENT_REFLECTANCE    = 1 << 21; // emm: `environment_reflectance` is set
         const ALPHA_MODE_RESERVED_BITS   = Self::ALPHA_MODE_MASK_BITS << Self::ALPHA_MODE_SHIFT_BITS; // ← Bitmask reserving bits for the `AlphaMode`
         const ALPHA_MODE_OPAQUE          = 0 << Self::ALPHA_MODE_SHIFT_BITS;                          // ← Values are just sequential values bitshifted into
         const ALPHA_MODE_MASK            = 1 << Self::ALPHA_MODE_SHIFT_BITS;                          //   the bitmask, and can range from 0 to 7.
@@ -1053,7 +1054,7 @@ pub struct StandardMaterialUniform {
     /// Specular intensity for non-metals on a linear scale of [0.0, 1.0]
     /// defaults to 0.5 which is mapped to 4% reflectance in the shader
     pub reflectance: Vec3,
-    /// `reflectance` for the environment map and the ambient's specular: the material's
+    /// emm: `reflectance` for the environment map and the ambient's specular: the material's
     /// `environment_reflectance`, or `reflectance` without one.
     pub environment_reflectance: Vec3,
     /// Linear perceptual roughness, clamped to [0.089, 1.0] in the shader
@@ -1225,6 +1226,7 @@ impl AsBindGroupShaderType<StandardMaterialUniform> for StandardMaterial {
             flags |= StandardMaterialFlags::ATTENUATION_ENABLED;
         }
 
+        // emm: the environment reflectance, and its flag.
         if self.environment_reflectance.is_some() {
             flags |= StandardMaterialFlags::ENVIRONMENT_REFLECTANCE;
         }
@@ -1243,6 +1245,7 @@ impl AsBindGroupShaderType<StandardMaterialUniform> for StandardMaterial {
             roughness: self.perceptual_roughness,
             metallic: self.metallic,
             reflectance,
+            // emm
             environment_reflectance: self.environment_reflectance.unwrap_or(reflectance),
             clearcoat: self.clearcoat,
             clearcoat_perceptual_roughness: self.clearcoat_perceptual_roughness,

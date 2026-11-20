@@ -252,6 +252,7 @@ pbr_input.material.uv_transform = uv_transform;
                 pbr_bindings::material_array[material_indices[slot].material].reflectance;
 @else
         pbr_input.material.reflectance = pbr_bindings::material.reflectance;
+        // emm: environment reflectance
 @if(BINDLESS)
         pbr_input.material.environment_reflectance =
                 pbr_bindings::material_array[material_indices[slot].material].environment_reflectance;
@@ -281,6 +282,7 @@ pbr_input.material.uv_transform = uv_transform;
             // This 0.5 factor is from the `KHR_materials_specular` specification:
             // <https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_specular#materials-with-reflectance-parameter>
             pbr_input.material.reflectance *= specular * 0.5;
+            // emm
             pbr_input.material.environment_reflectance *= specular * 0.5;
         }
 
@@ -303,6 +305,7 @@ pbr_input.material.uv_transform = uv_transform;
             @else
             let specular_tint = textureSampleBias(texture, sampler_, coords, bias.mip_bias).rgb;
             pbr_input.material.reflectance *= specular_tint;
+            // emm
             pbr_input.material.environment_reflectance *= specular_tint;
         }
 

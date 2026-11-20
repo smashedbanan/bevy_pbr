@@ -766,6 +766,7 @@ let environment_F0 = calculate_F0(output_color.rgb, metallic, environment_reflec
     @else   // SCREEN_SPACE_REFLECTIONS
     let use_ssr = false;
 
+    // emm: the environment map reads `environment_input`, in both branches below.
     @if(STANDARD_MATERIAL_ANISOTROPY)
     var bent_normal_lighting_input = environment_input;
     @if(STANDARD_MATERIAL_ANISOTROPY)
@@ -795,6 +796,7 @@ let environment_F0 = calculate_F0(output_color.rgb, metallic, environment_reflec
     @else   // LIGHTMAP
     let enable_ambient = true;
     if (enable_ambient) {
+        // emm: `environment_F0`, not `F0`.
         indirect_light += ambient::ambient_light(in.world_position, in.N, in.V, NdotV, diffuse_color, environment_F0, perceptual_roughness, diffuse_occlusion);
     }
 
